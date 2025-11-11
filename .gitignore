@@ -55,8 +55,6 @@ htmlcov/
 **/data/raw/**/*.log
 
 # Keep all data files in data/raw/ directory
-!**/data/raw/**/*
-!**/data/raw/
 
 # Keep all data files in data/processed/ directory
 !**/data/processed/**/*
