@@ -48,7 +48,7 @@ class CropBaselines:
         self.trained_models = {}
         self.results = {}
         self.random_state = random_state
-        logger.info("✓ CropBaselines initialized")
+        logger.info("CropBaselines initialized")
     
     def load_data(self, csv_path='data/processed/crop_processed.csv'):
         """Load engineered crop features"""
@@ -57,10 +57,10 @@ class CropBaselines:
                 raise FileNotFoundError(f"Data not found: {csv_path}")
             
             df = pd.read_csv(csv_path)
-            logger.info(f"✓ Loaded crop data: {df.shape[0]} rows × {df.shape[1]} columns")
+            logger.info(f"Loaded crop data: {df.shape[0]} rows × {df.shape[1]} columns")
             return df
         except Exception as e:
-            logger.error(f"✗ Error loading data: {e}")
+            logger.error(f"Error loading data: {e}")
             raise
     
     def load_raw_yield(self, raw_csv='data/processed/crop_raw_data.csv'):
@@ -68,10 +68,10 @@ class CropBaselines:
         try:
             raw_df = pd.read_csv(raw_csv)
             yield_values = raw_df['Yield'].values
-            logger.info(f"✓ Loaded yield target: {len(yield_values)} values")
+            logger.info(f"Loaded yield target: {len(yield_values)} values")
             return yield_values
         except Exception as e:
-            logger.error(f"✗ Error loading yield: {e}")
+            logger.error(f"Error loading yield: {e}")
             raise
     
     def prepare_data(self, X, y, test_size=0.2):
@@ -81,7 +81,7 @@ class CropBaselines:
                 X, y, test_size=test_size, random_state=self.random_state
             )
             
-            logger.info(f"\n📊 Dataset Split:")
+            logger.info(f"\nDataset Split:")
             logger.info(f"   Training: {X_train.shape[0]} samples")
             logger.info(f"   Testing: {X_test.shape[0]} samples")
             logger.info(f"   Features: {X_train.shape[1]}")
@@ -89,14 +89,14 @@ class CropBaselines:
             
             return X_train, X_test, y_train, y_test
         except Exception as e:
-            logger.error(f"✗ Error preparing data: {e}")
+            logger.error(f"Error preparing data: {e}")
             raise
     
     def train_and_evaluate(self, X_train, X_test, y_train, y_test):
         """Train all models with evaluation"""
         try:
             for model_name, model in self.models.items():
-                logger.info(f"\n🔄 Training {model_name.upper()}...")
+                logger.info(f"\nTraining {model_name.upper()}...")
                 
                 # Train
                 model.fit(X_train, y_train)
@@ -134,11 +134,11 @@ class CropBaselines:
                     'cv_std': cv_std
                 }
                 
-                logger.info(f"   ✓ Train MSE: {train_mse:.4f} | Test MSE: {test_mse:.4f}")
-                logger.info(f"   ✓ Train R²: {train_r2:.4f} | Test R²: {test_r2:.4f}")
-                logger.info(f"   ✓ CV MSE: {cv_mse:.4f} (±{cv_std:.4f})")
+                logger.info(f"   Train MSE: {train_mse:.4f} | Test MSE: {test_mse:.4f}")
+                logger.info(f"   Train R²: {train_r2:.4f} | Test R²: {test_r2:.4f}")
+                logger.info(f"   CV MSE: {cv_mse:.4f} (±{cv_std:.4f})")
         except Exception as e:
-            logger.error(f"✗ Error in training: {e}")
+            logger.error(f"Error in training: {e}")
             raise
     
     def save_models(self, save_dir='src/models/saved_models/crop_models'):
@@ -149,9 +149,9 @@ class CropBaselines:
             for model_name, model in self.trained_models.items():
                 path = f"{save_dir}/{model_name}_crop.pkl"
                 joblib.dump(model, path)
-                logger.info(f"✓ Saved {model_name}: {path}")
+                logger.info(f"Saved {model_name}: {path}")
         except Exception as e:
-            logger.error(f"✗ Error saving models: {e}")
+            logger.error(f"Error saving models: {e}")
             raise
     
     def get_results_dataframe(self):
@@ -171,7 +171,7 @@ class CropBaselines:
     def print_summary(self):
         """Print results summary"""
         logger.info("\n" + "=" * 80)
-        logger.info("📊 CROP MODEL PERFORMANCE SUMMARY")
+        logger.info("CROP MODEL PERFORMANCE SUMMARY")
         logger.info("=" * 80)
         
         results_df = self.get_results_dataframe()
@@ -186,27 +186,27 @@ class CropBaselines:
         best_mse = results_df.iloc[0]['Test MSE']
         best_r2 = results_df.iloc[0]['Test R²']
         
-        logger.info(f"\n✅ BEST CROP MODEL: {best_model}")
+        logger.info(f"\nBEST CROP MODEL: {best_model}")
         logger.info(f"   Test MSE: {best_mse:.4f}")
         logger.info(f"   Test R²: {best_r2:.4f}")
         
         # Compare to weather baseline
         weather_baseline_mse = 38.20
-        logger.info(f"\n📊 COMPARISON TO WEATHER BASELINE:")
+        logger.info(f"\nCOMPARISON TO WEATHER BASELINE:")
         logger.info(f"   Weather MSE: 38.20")
         logger.info(f"   Crop MSE: {best_mse:.4f}")
         
         if best_mse < weather_baseline_mse:
             improvement = ((weather_baseline_mse - best_mse) / weather_baseline_mse) * 100
-            logger.info(f"   ✅ CROP BETTER! Improvement: {improvement:.1f}%")
+            logger.info(f"   CROP BETTER! Improvement: {improvement:.1f}%")
         else:
             diff = ((best_mse - weather_baseline_mse) / weather_baseline_mse) * 100
-            logger.info(f"   ⚠️ Weather better by {diff:.1f}%")
+            logger.info(f"   Weather better by {diff:.1f}%")
         
-        logger.info(f"\n💡 R² ANALYSIS:")
+        logger.info(f"\nR² ANALYSIS:")
         logger.info(f"   Weather R²: 0.08 (synthetic data)")
         logger.info(f"   Crop R²: {best_r2:.4f} (REAL data!)")
-        logger.info(f"   → Crop model has {best_r2*100/0.08:.0f}× better fit!")
+        logger.info(f"   Crop model has {best_r2*100/0.08:.0f}× better fit!")
         
         return results_df
     
@@ -216,10 +216,10 @@ class CropBaselines:
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
             results_df = self.get_results_dataframe()
             results_df.to_csv(output_path, index=False)
-            logger.info(f"✓ Results exported: {output_path}")
+            logger.info(f"Results exported: {output_path}")
             return results_df
         except Exception as e:
-            logger.error(f"✗ Error exporting results: {e}")
+            logger.error(f"Error exporting results: {e}")
             raise
     
     def update_registry(self, registry_path='src/models/saved_models/model_registry.json'):
@@ -248,10 +248,10 @@ class CropBaselines:
             with open(registry_path, 'w') as f:
                 json.dump(registry, f, indent=2)
             
-            logger.info(f"✓ Model registry updated: {registry_path}")
+            logger.info(f"Model registry updated: {registry_path}")
             logger.info(f"   Total models now in registry: {len(registry)}")
         except Exception as e:
-            logger.error(f"✗ Error updating registry: {e}")
+            logger.error(f"Error updating registry: {e}")
             raise
 
 
@@ -262,59 +262,59 @@ class CropBaselines:
 if __name__ == "__main__":
     
     print("\n" + "=" * 80)
-    print("🌾 CROP-BASED CLASSICAL ML BASELINES")
+    print("CROP-BASED CLASSICAL ML BASELINES")
     print("=" * 80)
     
     try:
         # Initialize
-        logger.info("\n🚀 Initializing crop baseline trainer...")
+        logger.info("\nInitializing crop baseline trainer...")
         baseline = CropBaselines(random_state=42)
         
         # Load data
-        logger.info("\n📂 Loading processed crop features...")
+        logger.info("\nLoading processed crop features...")
         X = baseline.load_data('data/processed/crop_processed.csv')
         
         # Load yield target
-        logger.info("\n🎯 Loading yield target...")
+        logger.info("\nLoading yield target...")
         y = baseline.load_raw_yield('data/processed/crop_raw_data.csv')
         
         # Prepare data
-        logger.info("\n📊 Preparing train/test split...")
+        logger.info("\nPreparing train/test split...")
         X_train, X_test, y_train, y_test = baseline.prepare_data(X, y, test_size=0.2)
         
         # Train models
-        logger.info("\n🚂 Training models...")
+        logger.info("\nTraining models...")
         baseline.train_and_evaluate(X_train, X_test, y_train, y_test)
         
         # Print summary
-        logger.info("\n📈 Generating summary...")
+        logger.info("\nGenerating summary...")
         results_df = baseline.print_summary()
         
         # Save models
-        logger.info("\n💾 Saving models...")
+        logger.info("\nSaving models...")
         baseline.save_models()
         
         # Export results
-        logger.info("\n📊 Exporting results...")
+        logger.info("\nExporting results...")
         baseline.export_results()
         
         # Update registry
-        logger.info("\n📚 Updating model registry...")
+        logger.info("\nUpdating model registry...")
         baseline.update_registry()
         
         logger.info("\n" + "=" * 80)
-        logger.info("✅ CROP BASELINE MODELS COMPLETE!")
+        logger.info("CROP BASELINE MODELS COMPLETE!")
         logger.info("=" * 80)
         
-        logger.info("\n📝 PHASE 2 COMPLETION SUMMARY:")
-        logger.info("   ✅ Crop data loaded: 19,689 records")
-        logger.info("   ✅ Features engineered: 37 features")
-        logger.info("   ✅ Baseline models trained: 3 models")
-        logger.info("   ✅ Results exported: CSV + registry")
-        logger.info("   ✅ Ready for Phase 3: Quantum Module!")
+        logger.info("\nPHASE 2 COMPLETION SUMMARY:")
+        logger.info("   Crop data loaded: 19,689 records")
+        logger.info("   Features engineered: 37 features")
+        logger.info("   Baseline models trained: 3 models")
+        logger.info("   Results exported: CSV + registry")
+        logger.info("   Ready for Phase 3: Quantum Module!")
         
         print("\n" + "=" * 80)
         
     except Exception as e:
-        logger.error(f"\n✗ Pipeline failed: {e}")
+        logger.error(f"\nPipeline failed: {e}")
         raise
