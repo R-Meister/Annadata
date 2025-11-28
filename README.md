@@ -230,11 +230,6 @@ curl -X POST "http://localhost:5000/api/v1/predict/yield" \
 - **February 2026**: Feature modules complete
 - **April 2026**: System integration and final deployment
 
-### Performance Benchmarks
-Track our progress toward quantum advantage:
-- **Current MSE**: Targeting <28 (vs. classical baseline of ~45)
-- **Pilot Farms**: 5+ cooperatives signed up for field testing
-- **Data Sources**: 4 major APIs integrated, 1000+ historical records processed
 
 ## Team
 
