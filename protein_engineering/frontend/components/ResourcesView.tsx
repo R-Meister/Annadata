@@ -11,7 +11,7 @@ export default function ResourcesView() {
         {
             title: "Department of Agriculture & Farmers Welfare",
             description: "Government of India's nodal agency for formulation and administration of the rules and regulations and laws related to agriculture.",
-            link: "https://agricoop.nic.in/",
+            link: "https://agricoopnic.com/",
             icon: "🚜"
         },
         {
