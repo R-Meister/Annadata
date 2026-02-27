@@ -67,8 +67,13 @@ This starts all services:
 | SoilScan AI | http://localhost:8002 | Soil analysis API |
 | Fasal Rakshak | http://localhost:8003 | Crop protection API |
 | Jal Shakti | http://localhost:8004 | Water management API |
-| Harvest Shakti | http://localhost:8005 | Harvest DSS API |
+| Harvest Shakti | http://localhost:8005 | Harvest DSS (AGRI-MAA) API |
 | Kisaan Sahayak | http://localhost:8006 | AI assistant API |
+| Protein Engineering | http://localhost:8007 | Protein analysis API |
+| Kisan Credit | http://localhost:8008 | Credit score API |
+| Harvest-to-Cart | http://localhost:8009 | Cold chain logistics API |
+| Beej Suraksha | http://localhost:8010 | Seed verification API |
+| Mausam Chakra | http://localhost:8011 | Hyper-local weather API |
 | PostgreSQL | localhost:5432 | Database |
 | Redis | localhost:6379 | Cache + task broker |
 
@@ -186,7 +191,7 @@ pip install -r requirements.txt
 ./start.sh local
 ```
 
-This starts MSP Mitra (8001), Protein Engineering (8000), and the Frontend (3000) simultaneously.
+This starts all 11 backend services and the frontend simultaneously.
 
 **Option 2: Start services individually**
 
@@ -250,7 +255,7 @@ curl http://localhost:8001/health
 curl http://localhost:8002/health
 
 # All services at once
-for port in 8001 8002 8003 8004 8005 8006; do
+for port in 8001 8002 8003 8004 8005 8006 8007 8008 8009 8010 8011; do
   echo "Port $port: $(curl -s http://localhost:$port/health | python3 -m json.tool 2>/dev/null || echo 'not running')"
 done
 ```
@@ -289,6 +294,11 @@ Each FastAPI service auto-generates interactive API docs:
 | Jal Shakti | http://localhost:8004/docs | http://localhost:8004/redoc |
 | Harvest Shakti | http://localhost:8005/docs | http://localhost:8005/redoc |
 | Kisaan Sahayak | http://localhost:8006/docs | http://localhost:8006/redoc |
+| Protein Engineering | http://localhost:8007/docs | http://localhost:8007/redoc |
+| Kisan Credit | http://localhost:8008/docs | http://localhost:8008/redoc |
+| Harvest-to-Cart | http://localhost:8009/docs | http://localhost:8009/redoc |
+| Beej Suraksha | http://localhost:8010/docs | http://localhost:8010/redoc |
+| Mausam Chakra | http://localhost:8011/docs | http://localhost:8011/redoc |
 
 ---
 
@@ -362,8 +372,13 @@ Annadata/
 │   ├── soilscan_ai/            # Soil analysis (port 8002)
 │   ├── fasal_rakshak/          # Crop protection (port 8003)
 │   ├── jal_shakti/             # Water management (port 8004)
-│   ├── harvest_shakti/         # Harvest DSS (port 8005)
-│   └── kisaan_sahayak/         # AI assistant (port 8006)
+│   ├── harvest_shakti/         # Harvest DSS / AGRI-MAA (port 8005)
+│   ├── kisaan_sahayak/         # AI assistant (port 8006)
+│   ├── protein_engineering/    # Protein analysis (port 8007)
+│   ├── kisan_credit/           # Credit scoring (port 8008)
+│   ├── harvest_to_cart/        # Cold chain logistics (port 8009)
+│   ├── beej_suraksha/          # Seed verification (port 8010)
+│   └── mausam_chakra/          # Hyper-local weather (port 8011)
 │
 ├── frontend/                   # Unified Next.js 16 dashboard
 │   ├── app/                    #   Pages (App Router)
@@ -465,3 +480,19 @@ docker compose logs -f msp-mitra
 | `JWT_ALGORITHM` | HS256 | JWT algorithm |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | 480 | Token expiry (8 hours) |
 | `OPENWEATHER_API_KEY` | (empty) | OpenWeather API key |
+| `GEMINI_API_KEY` | (empty) | Google Gemini API key (Kisaan Sahayak) |
+| `DATA_GOV_API_KEY` | (empty) | data.gov.in API key (MSP Mitra) |
+| `TELEGRAM_BOT_TOKEN` | (empty) | Telegram bot token (price alerts) |
+| `SENTINEL_HUB_CLIENT_ID` | (empty) | Sentinel Hub client ID |
+| `SENTINEL_HUB_CLIENT_SECRET` | (empty) | Sentinel Hub client secret |
+| `MSP_MITRA_PORT` | 8001 | MSP Mitra service port |
+| `SOILSCAN_AI_PORT` | 8002 | SoilScan AI service port |
+| `FASAL_RAKSHAK_PORT` | 8003 | Fasal Rakshak service port |
+| `JAL_SHAKTI_PORT` | 8004 | Jal Shakti service port |
+| `HARVEST_SHAKTI_PORT` | 8005 | Harvest Shakti service port |
+| `KISAAN_SAHAYAK_PORT` | 8006 | Kisaan Sahayak service port |
+| `PROTEIN_ENGINEERING_PORT` | 8007 | Protein Engineering service port |
+| `KISAN_CREDIT_PORT` | 8008 | Kisan Credit service port |
+| `HARVEST_TO_CART_PORT` | 8009 | Harvest-to-Cart service port |
+| `BEEJ_SURAKSHA_PORT` | 8010 | Beej Suraksha service port |
+| `MAUSAM_CHAKRA_PORT` | 8011 | Mausam Chakra service port |
