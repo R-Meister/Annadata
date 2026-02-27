@@ -36,7 +36,8 @@ if str(_legacy_backend) not in sys.path:
     sys.path.insert(0, str(_legacy_backend))
 
 # Import from shared
-from services.shared.auth.router import router as auth_router
+from services.shared.auth.router import router as auth_router, setup_rate_limiting
+from services.shared.config import settings
 from services.shared.db.session import close_db, init_db
 
 import numpy as np
@@ -72,13 +73,14 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.BACKEND_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.include_router(auth_router)
+setup_rate_limiting(app)
 
 
 # ============================================================

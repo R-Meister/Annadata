@@ -1,0 +1,72 @@
+# ============================================================
+# ANNADATA OS - Docker Compose Override (Development)
+# ============================================================
+# This file is automatically loaded by `docker compose up` when
+# present alongside docker-compose.yml.  It adds volume mounts
+# for hot-reload during local development.
+#
+# For production: rename or delete this file so that only
+# docker-compose.yml is used (code is baked into images).
+# ============================================================
+
+services:
+  msp-mitra:
+    volumes:
+      - ./services/msp_mitra:/app/services/msp_mitra
+      - ./services/shared:/app/services/shared
+      - ./msp_mitra:/app/msp_mitra   # existing data files
+
+  soilscan-ai:
+    volumes:
+      - ./services/soilscan_ai:/app/services/soilscan_ai
+      - ./services/shared:/app/services/shared
+
+  fasal-rakshak:
+    volumes:
+      - ./services/fasal_rakshak:/app/services/fasal_rakshak
+      - ./services/shared:/app/services/shared
+
+  jal-shakti:
+    volumes:
+      - ./services/jal_shakti:/app/services/jal_shakti
+      - ./services/shared:/app/services/shared
+
+  harvest-shakti:
+    volumes:
+      - ./services/harvest_shakti:/app/services/harvest_shakti
+      - ./services/shared:/app/services/shared
+
+  kisaan-sahayak:
+    volumes:
+      - ./services/kisaan_sahayak:/app/services/kisaan_sahayak
+      - ./services/shared:/app/services/shared
+
+  protein-engineering:
+    volumes:
+      - ./services/protein_engineering:/app/services/protein_engineering
+      - ./services/shared:/app/services/shared
+      - ./protein_engineering:/app/protein_engineering
+
+  kisan-credit:
+    volumes:
+      - ./services/kisan_credit:/app/services/kisan_credit
+      - ./services/shared:/app/services/shared
+
+  harvest-to-cart:
+    volumes:
+      - ./services/harvest_to_cart:/app/services/harvest_to_cart
+      - ./services/shared:/app/services/shared
+
+  beej-suraksha:
+    volumes:
+      - ./services/beej_suraksha:/app/services/beej_suraksha
+      - ./services/shared:/app/services/shared
+
+  mausam-chakra:
+    volumes:
+      - ./services/mausam_chakra:/app/services/mausam_chakra
+      - ./services/shared:/app/services/shared
+
+  celery-worker:
+    volumes:
+      - ./services:/app/services

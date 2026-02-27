@@ -3,10 +3,15 @@ Auth API router - handles registration, login, and user profile.
 Mount this router in any service that needs auth endpoints.
 """
 
+import re
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict, EmailStr
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi.util import get_remote_address
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +29,29 @@ from services.shared.db.session import get_db
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+# Rate limiter — keyed by client IP
+limiter = Limiter(key_func=get_remote_address)
+
+
+def setup_rate_limiting(app):
+    """Register the slowapi limiter on a FastAPI app.
+
+    Call this after ``app.include_router(auth_router)`` so that the
+    rate-limit decorators on /auth/login and /auth/register are enforced.
+    """
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_middleware(SlowAPIMiddleware)
+
+
+async def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(
+        status_code=429,
+        content={"detail": f"Rate limit exceeded: {exc.detail}"},
+    )
+
 
 # ============================================================
 # Request / Response Schemas
@@ -38,6 +66,17 @@ class RegisterRequest(BaseModel):
     role: UserRole = UserRole.FARMER
     state: str | None = None
     district: str | None = None
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters long")
+        if not re.search(r"[A-Za-z]", v):
+            raise ValueError("Password must contain at least one letter")
+        if not re.search(r"\d", v):
+            raise ValueError("Password must contain at least one digit")
+        return v
 
 
 class LoginRequest(BaseModel):
@@ -64,7 +103,10 @@ class UserResponse(BaseModel):
 
 
 @router.post("/register", response_model=TokenData, status_code=status.HTTP_201_CREATED)
-async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("3/minute")
+async def register(
+    request: Request, body: RegisterRequest, db: AsyncSession = Depends(get_db)
+):
     """Register a new user and return access token."""
     # Check for existing user
     result = await db.execute(select(User).where(User.email == body.email))
@@ -95,7 +137,10 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenData)
-async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def login(
+    request: Request, body: LoginRequest, db: AsyncSession = Depends(get_db)
+):
     """Authenticate user and return access token."""
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()

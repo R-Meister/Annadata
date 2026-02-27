@@ -87,3 +87,6 @@ frontend/tsconfig.tsbuildinfo
 # Node
 node_modules/
 .next/
+
+# Database backups
+backups/

@@ -19,7 +19,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from services.shared.auth.router import router as auth_router
+from services.shared.auth.router import router as auth_router, setup_rate_limiting
 from services.shared.config import settings
 from services.shared.db.session import init_db, close_db
 
@@ -89,10 +89,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — permissive for dev
+# CORS — use settings for allowed origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.BACKEND_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -100,6 +100,7 @@ app.add_middleware(
 
 # Mount shared auth router (/auth/register, /auth/login, /auth/me)
 app.include_router(auth_router)
+setup_rate_limiting(app)
 
 
 # ============================================================

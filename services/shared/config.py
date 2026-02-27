@@ -4,9 +4,10 @@ Reads from environment variables / .env file.
 """
 
 import os
+import warnings
 from pathlib import Path
 from typing import List, Optional, Union
-from pydantic import validator
+from pydantic import model_validator, validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -72,6 +73,20 @@ class SharedSettings(BaseSettings):
         case_sensitive=True,
         extra="ignore",
     )
+
+    @model_validator(mode="after")
+    def _check_production_secrets(self):
+        """Prevent insecure default secrets from being used in production."""
+        if self.APP_ENV.lower() == "production":
+            if "insecure" in self.SECRET_KEY.lower():
+                raise ValueError(
+                    "SECRET_KEY contains 'insecure' — set a strong secret for production"
+                )
+            if "insecure" in self.JWT_SECRET_KEY.lower():
+                raise ValueError(
+                    "JWT_SECRET_KEY contains 'insecure' — set a strong secret for production"
+                )
+        return self
 
 
 settings = SharedSettings()

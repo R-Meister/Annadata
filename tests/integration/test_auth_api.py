@@ -43,6 +43,7 @@ async def test_app():
     # yet, so Base.metadata.tables would be empty without this import.
     import services.shared.db.models  # noqa: F401
     from services.shared.auth.router import router as auth_router
+    from services.shared.auth.router import setup_rate_limiting, limiter
 
     # Use StaticPool to share the same in-memory DB across all connections
     engine = create_async_engine(
@@ -71,6 +72,9 @@ async def test_app():
     app = FastAPI()
 
     app.include_router(auth_router)
+    setup_rate_limiting(app)
+    # Disable rate limiting during tests
+    limiter.enabled = False
     app.dependency_overrides[get_db] = override_get_db
 
     yield app
@@ -110,7 +114,7 @@ async def test_register_duplicate_email(client):
     """Registering with an already-used email returns 400."""
     payload = {
         "email": "duplicate@example.com",
-        "password": "pass123",
+        "password": "pass1234",
         "full_name": "User One",
     }
     resp1 = await client.post("/auth/register", json=payload)
@@ -128,7 +132,7 @@ async def test_login_valid_credentials(client):
         "/auth/register",
         json={
             "email": "login@example.com",
-            "password": "mypassword",
+            "password": "mypassword1",
             "full_name": "Login User",
         },
     )
@@ -136,7 +140,7 @@ async def test_login_valid_credentials(client):
         "/auth/login",
         json={
             "email": "login@example.com",
-            "password": "mypassword",
+            "password": "mypassword1",
         },
     )
     assert response.status_code == 200
@@ -152,7 +156,7 @@ async def test_login_wrong_password(client):
         "/auth/register",
         json={
             "email": "wrongpass@example.com",
-            "password": "correct",
+            "password": "correct1pw",
             "full_name": "WP User",
         },
     )
@@ -160,7 +164,7 @@ async def test_login_wrong_password(client):
         "/auth/login",
         json={
             "email": "wrongpass@example.com",
-            "password": "incorrect",
+            "password": "incorrect1",
         },
     )
     assert response.status_code == 401
@@ -186,7 +190,7 @@ async def test_get_profile_with_valid_token(client):
         "/auth/register",
         json={
             "email": "profile@example.com",
-            "password": "pass123",
+            "password": "pass1234",
             "full_name": "Profile User",
             "role": "researcher",
             "state": "Maharashtra",

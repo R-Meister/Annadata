@@ -1,11 +1,14 @@
 # ============================================================
-# ANNADATA OS - Docker Compose
-# Development orchestration for all services
+# ANNADATA OS - Docker Compose (Production-ready)
 # ============================================================
 # Usage:
 #   docker compose up --build        (start all services)
 #   docker compose up postgres redis (start infra only)
 #   docker compose up msp-mitra      (start single service + deps)
+#
+# Dev overrides (volume mounts for hot-reload) are in
+# docker-compose.override.yml which Docker Compose loads
+# automatically when present.
 # ============================================================
 
 services:
@@ -15,6 +18,7 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: annadata-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-annadata}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-annadata_dev_password}
@@ -28,12 +32,15 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    mem_limit: 512m
+    cpus: 0.5
     networks:
       - annadata-net
 
   redis:
     image: redis:7-alpine
     container_name: annadata-redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
@@ -43,6 +50,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    mem_limit: 256m
+    cpus: 0.25
     networks:
       - annadata-net
 
@@ -52,16 +61,19 @@ services:
   traefik:
     image: traefik:v3.0
     container_name: annadata-traefik
+    restart: unless-stopped
     command:
-      - "--api.insecure=true"
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
       - "--entrypoints.web.address=:80"
+      # Dashboard: only exposed when TRAEFIK_DASHBOARD=true
+      - "--api.dashboard=${TRAEFIK_DASHBOARD:-false}"
     ports:
       - "80:80"
-      - "8080:8080"   # Traefik dashboard
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    mem_limit: 256m
+    cpus: 0.25
     networks:
       - annadata-net
     profiles:
@@ -75,6 +87,7 @@ services:
       context: .
       dockerfile: services/msp_mitra/Dockerfile
     container_name: annadata-msp-mitra
+    restart: unless-stopped
     environment:
       - POSTGRES_SERVER=postgres
       - REDIS_HOST=redis
@@ -84,15 +97,19 @@ services:
       - .env
     ports:
       - "8001:8001"
-    volumes:
-      - ./services/msp_mitra:/app/services/msp_mitra
-      - ./services/shared:/app/services/shared
-      - ./msp_mitra:/app/msp_mitra   # existing data files
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: 1g
+    cpus: 1.0
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.msp-mitra.rule=PathPrefix(`/api/msp-mitra`)"
@@ -108,6 +125,7 @@ services:
       context: .
       dockerfile: services/soilscan_ai/Dockerfile
     container_name: annadata-soilscan-ai
+    restart: unless-stopped
     environment:
       - POSTGRES_SERVER=postgres
       - REDIS_HOST=redis
@@ -117,14 +135,19 @@ services:
       - .env
     ports:
       - "8002:8002"
-    volumes:
-      - ./services/soilscan_ai:/app/services/soilscan_ai
-      - ./services/shared:/app/services/shared
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
+    cpus: 0.5
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.soilscan-ai.rule=PathPrefix(`/api/soilscan`)"
@@ -140,6 +163,7 @@ services:
       context: .
       dockerfile: services/fasal_rakshak/Dockerfile
     container_name: annadata-fasal-rakshak
+    restart: unless-stopped
     environment:
       - POSTGRES_SERVER=postgres
       - REDIS_HOST=redis
@@ -149,14 +173,19 @@ services:
       - .env
     ports:
       - "8003:8003"
-    volumes:
-      - ./services/fasal_rakshak:/app/services/fasal_rakshak
-      - ./services/shared:/app/services/shared
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
+    cpus: 0.5
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.fasal-rakshak.rule=PathPrefix(`/api/fasal-rakshak`)"
@@ -172,6 +201,7 @@ services:
       context: .
       dockerfile: services/jal_shakti/Dockerfile
     container_name: annadata-jal-shakti
+    restart: unless-stopped
     environment:
       - POSTGRES_SERVER=postgres
       - REDIS_HOST=redis
@@ -181,14 +211,19 @@ services:
       - .env
     ports:
       - "8004:8004"
-    volumes:
-      - ./services/jal_shakti:/app/services/jal_shakti
-      - ./services/shared:/app/services/shared
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
+    cpus: 0.5
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.jal-shakti.rule=PathPrefix(`/api/jal-shakti`)"
@@ -204,6 +239,7 @@ services:
       context: .
       dockerfile: services/harvest_shakti/Dockerfile
     container_name: annadata-harvest-shakti
+    restart: unless-stopped
     environment:
       - POSTGRES_SERVER=postgres
       - REDIS_HOST=redis
@@ -213,14 +249,19 @@ services:
       - .env
     ports:
       - "8005:8005"
-    volumes:
-      - ./services/harvest_shakti:/app/services/harvest_shakti
-      - ./services/shared:/app/services/shared
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
+    cpus: 0.5
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.harvest-shakti.rule=PathPrefix(`/api/harvest-shakti`)"
@@ -236,6 +277,7 @@ services:
       context: .
       dockerfile: services/kisaan_sahayak/Dockerfile
     container_name: annadata-kisaan-sahayak
+    restart: unless-stopped
     environment:
       - POSTGRES_SERVER=postgres
       - REDIS_HOST=redis
@@ -245,14 +287,19 @@ services:
       - .env
     ports:
       - "8006:8006"
-    volumes:
-      - ./services/kisaan_sahayak:/app/services/kisaan_sahayak
-      - ./services/shared:/app/services/shared
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8006/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
+    cpus: 0.5
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.kisaan-sahayak.rule=PathPrefix(`/api/kisaan-sahayak`)"
@@ -268,6 +315,7 @@ services:
       context: .
       dockerfile: services/protein_engineering/Dockerfile
     container_name: annadata-protein-engineering
+    restart: unless-stopped
     environment:
       - POSTGRES_SERVER=postgres
       - REDIS_HOST=redis
@@ -277,15 +325,19 @@ services:
       - .env
     ports:
       - "8007:8007"
-    volumes:
-      - ./services/protein_engineering:/app/services/protein_engineering
-      - ./services/shared:/app/services/shared
-      - ./protein_engineering:/app/protein_engineering
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
+    cpus: 0.5
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.protein-engineering.rule=PathPrefix(`/api/protein-engineering`)"
@@ -301,6 +353,7 @@ services:
       context: .
       dockerfile: services/kisan_credit/Dockerfile
     container_name: annadata-kisan-credit
+    restart: unless-stopped
     environment:
       - POSTGRES_SERVER=postgres
       - REDIS_HOST=redis
@@ -310,14 +363,19 @@ services:
       - .env
     ports:
       - "8008:8008"
-    volumes:
-      - ./services/kisan_credit:/app/services/kisan_credit
-      - ./services/shared:/app/services/shared
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
+    cpus: 0.5
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.kisan-credit.rule=PathPrefix(`/api/kisan-credit`)"
@@ -333,6 +391,7 @@ services:
       context: .
       dockerfile: services/harvest_to_cart/Dockerfile
     container_name: annadata-harvest-to-cart
+    restart: unless-stopped
     environment:
       - POSTGRES_SERVER=postgres
       - REDIS_HOST=redis
@@ -342,14 +401,19 @@ services:
       - .env
     ports:
       - "8009:8009"
-    volumes:
-      - ./services/harvest_to_cart:/app/services/harvest_to_cart
-      - ./services/shared:/app/services/shared
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8009/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
+    cpus: 0.5
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.harvest-to-cart.rule=PathPrefix(`/api/harvest-to-cart`)"
@@ -365,6 +429,7 @@ services:
       context: .
       dockerfile: services/beej_suraksha/Dockerfile
     container_name: annadata-beej-suraksha
+    restart: unless-stopped
     environment:
       - POSTGRES_SERVER=postgres
       - REDIS_HOST=redis
@@ -374,14 +439,19 @@ services:
       - .env
     ports:
       - "8010:8010"
-    volumes:
-      - ./services/beej_suraksha:/app/services/beej_suraksha
-      - ./services/shared:/app/services/shared
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
+    cpus: 0.5
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.beej-suraksha.rule=PathPrefix(`/api/beej-suraksha`)"
@@ -397,6 +467,7 @@ services:
       context: .
       dockerfile: services/mausam_chakra/Dockerfile
     container_name: annadata-mausam-chakra
+    restart: unless-stopped
     environment:
       - POSTGRES_SERVER=postgres
       - REDIS_HOST=redis
@@ -406,14 +477,19 @@ services:
       - .env
     ports:
       - "8011:8011"
-    volumes:
-      - ./services/mausam_chakra:/app/services/mausam_chakra
-      - ./services/shared:/app/services/shared
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8011/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
+    cpus: 0.5
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.mausam-chakra.rule=PathPrefix(`/api/mausam-chakra`)"
@@ -429,18 +505,19 @@ services:
       context: .
       dockerfile: infra/docker-templates/Dockerfile.celery
     container_name: annadata-celery-worker
+    restart: unless-stopped
     environment:
       - POSTGRES_SERVER=postgres
       - REDIS_HOST=redis
     env_file:
       - .env
-    volumes:
-      - ./services:/app/services
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    mem_limit: 512m
+    cpus: 0.5
     networks:
       - annadata-net
 
@@ -452,6 +529,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: annadata-frontend
+    restart: unless-stopped
     environment:
       # Server-side rewrites need Docker network hostnames
       - NEXT_PUBLIC_API_BASE_URL=http://localhost
@@ -480,6 +558,14 @@ services:
       - harvest-to-cart
       - beej-suraksha
       - mausam-chakra
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    mem_limit: 512m
+    cpus: 0.5
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.frontend.rule=PathPrefix(`/`)"
