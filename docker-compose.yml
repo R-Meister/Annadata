@@ -1,0 +1,331 @@
+# ============================================================
+# ANNADATA OS - Docker Compose
+# Development orchestration for all services
+# ============================================================
+# Usage:
+#   docker compose up --build        (start all services)
+#   docker compose up postgres redis (start infra only)
+#   docker compose up msp-mitra      (start single service + deps)
+# ============================================================
+
+services:
+  # --------------------------------------------------------
+  # Core Infrastructure
+  # --------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    container_name: annadata-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-annadata}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-annadata_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-annadata}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-annadata}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - annadata-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: annadata-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - annadata-net
+
+  # --------------------------------------------------------
+  # Traefik Reverse Proxy (optional API gateway)
+  # --------------------------------------------------------
+  traefik:
+    image: traefik:v3.0
+    container_name: annadata-traefik
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "80:80"
+      - "8080:8080"   # Traefik dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - annadata-net
+    profiles:
+      - gateway       # Only start with: docker compose --profile gateway up
+
+  # --------------------------------------------------------
+  # MSP Mitra Service (port 8001)
+  # --------------------------------------------------------
+  msp-mitra:
+    build:
+      context: .
+      dockerfile: services/msp_mitra/Dockerfile
+    container_name: annadata-msp-mitra
+    environment:
+      - POSTGRES_SERVER=postgres
+      - REDIS_HOST=redis
+      - SERVICE_NAME=msp_mitra
+      - SERVICE_PORT=8001
+    env_file:
+      - .env
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./services/msp_mitra:/app/services/msp_mitra
+      - ./services/shared:/app/services/shared
+      - ./msp_mitra:/app/msp_mitra   # existing data files
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.msp-mitra.rule=PathPrefix(`/api/msp-mitra`)"
+      - "traefik.http.services.msp-mitra.loadbalancer.server.port=8001"
+    networks:
+      - annadata-net
+
+  # --------------------------------------------------------
+  # SoilScan AI Service (port 8002)
+  # --------------------------------------------------------
+  soilscan-ai:
+    build:
+      context: .
+      dockerfile: services/soilscan_ai/Dockerfile
+    container_name: annadata-soilscan-ai
+    environment:
+      - POSTGRES_SERVER=postgres
+      - REDIS_HOST=redis
+      - SERVICE_NAME=soilscan_ai
+      - SERVICE_PORT=8002
+    env_file:
+      - .env
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./services/soilscan_ai:/app/services/soilscan_ai
+      - ./services/shared:/app/services/shared
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.soilscan-ai.rule=PathPrefix(`/api/soilscan`)"
+      - "traefik.http.services.soilscan-ai.loadbalancer.server.port=8002"
+    networks:
+      - annadata-net
+
+  # --------------------------------------------------------
+  # Fasal Rakshak Service (port 8003)
+  # --------------------------------------------------------
+  fasal-rakshak:
+    build:
+      context: .
+      dockerfile: services/fasal_rakshak/Dockerfile
+    container_name: annadata-fasal-rakshak
+    environment:
+      - POSTGRES_SERVER=postgres
+      - REDIS_HOST=redis
+      - SERVICE_NAME=fasal_rakshak
+      - SERVICE_PORT=8003
+    env_file:
+      - .env
+    ports:
+      - "8003:8003"
+    volumes:
+      - ./services/fasal_rakshak:/app/services/fasal_rakshak
+      - ./services/shared:/app/services/shared
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.fasal-rakshak.rule=PathPrefix(`/api/fasal-rakshak`)"
+      - "traefik.http.services.fasal-rakshak.loadbalancer.server.port=8003"
+    networks:
+      - annadata-net
+
+  # --------------------------------------------------------
+  # Jal Shakti Service (port 8004)
+  # --------------------------------------------------------
+  jal-shakti:
+    build:
+      context: .
+      dockerfile: services/jal_shakti/Dockerfile
+    container_name: annadata-jal-shakti
+    environment:
+      - POSTGRES_SERVER=postgres
+      - REDIS_HOST=redis
+      - SERVICE_NAME=jal_shakti
+      - SERVICE_PORT=8004
+    env_file:
+      - .env
+    ports:
+      - "8004:8004"
+    volumes:
+      - ./services/jal_shakti:/app/services/jal_shakti
+      - ./services/shared:/app/services/shared
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.jal-shakti.rule=PathPrefix(`/api/jal-shakti`)"
+      - "traefik.http.services.jal-shakti.loadbalancer.server.port=8004"
+    networks:
+      - annadata-net
+
+  # --------------------------------------------------------
+  # Harvest Shakti Service (port 8005)
+  # --------------------------------------------------------
+  harvest-shakti:
+    build:
+      context: .
+      dockerfile: services/harvest_shakti/Dockerfile
+    container_name: annadata-harvest-shakti
+    environment:
+      - POSTGRES_SERVER=postgres
+      - REDIS_HOST=redis
+      - SERVICE_NAME=harvest_shakti
+      - SERVICE_PORT=8005
+    env_file:
+      - .env
+    ports:
+      - "8005:8005"
+    volumes:
+      - ./services/harvest_shakti:/app/services/harvest_shakti
+      - ./services/shared:/app/services/shared
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.harvest-shakti.rule=PathPrefix(`/api/harvest-shakti`)"
+      - "traefik.http.services.harvest-shakti.loadbalancer.server.port=8005"
+    networks:
+      - annadata-net
+
+  # --------------------------------------------------------
+  # Kisaan Sahayak Service (port 8006)
+  # --------------------------------------------------------
+  kisaan-sahayak:
+    build:
+      context: .
+      dockerfile: services/kisaan_sahayak/Dockerfile
+    container_name: annadata-kisaan-sahayak
+    environment:
+      - POSTGRES_SERVER=postgres
+      - REDIS_HOST=redis
+      - SERVICE_NAME=kisaan_sahayak
+      - SERVICE_PORT=8006
+    env_file:
+      - .env
+    ports:
+      - "8006:8006"
+    volumes:
+      - ./services/kisaan_sahayak:/app/services/kisaan_sahayak
+      - ./services/shared:/app/services/shared
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.kisaan-sahayak.rule=PathPrefix(`/api/kisaan-sahayak`)"
+      - "traefik.http.services.kisaan-sahayak.loadbalancer.server.port=8006"
+    networks:
+      - annadata-net
+
+  # --------------------------------------------------------
+  # Celery Worker (shared across services)
+  # --------------------------------------------------------
+  celery-worker:
+    build:
+      context: .
+      dockerfile: infra/docker-templates/Dockerfile.celery
+    container_name: annadata-celery-worker
+    environment:
+      - POSTGRES_SERVER=postgres
+      - REDIS_HOST=redis
+    env_file:
+      - .env
+    volumes:
+      - ./services:/app/services
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - annadata-net
+
+  # --------------------------------------------------------
+  # Unified Next.js Frontend (port 3000)
+  # --------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: annadata-frontend
+    environment:
+      - NEXT_PUBLIC_API_BASE_URL=http://localhost
+      - NEXT_PUBLIC_MSP_MITRA_URL=http://localhost:8001
+      - NEXT_PUBLIC_SOILSCAN_URL=http://localhost:8002
+      - NEXT_PUBLIC_FASAL_RAKSHAK_URL=http://localhost:8003
+      - NEXT_PUBLIC_JAL_SHAKTI_URL=http://localhost:8004
+      - NEXT_PUBLIC_HARVEST_SHAKTI_URL=http://localhost:8005
+      - NEXT_PUBLIC_KISAAN_SAHAYAK_URL=http://localhost:8006
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - msp-mitra
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=PathPrefix(`/`)"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+    networks:
+      - annadata-net
+
+# --------------------------------------------------------
+# Volumes
+# --------------------------------------------------------
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# --------------------------------------------------------
+# Network
+# --------------------------------------------------------
+networks:
+  annadata-net:
+    driver: bridge

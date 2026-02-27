@@ -1,0 +1,35 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+venv/
+venv_quantum/
+.env
+*.egg-info
+
+# Node
+node_modules/
+.next/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Data (large files - mount as volumes instead)
+# msp_mitra/agmarknet_india_historical_prices_2024_2025.csv
+
+# Docs
+*.md
+!README.md
+docs/
+notebooks/
+
+# OS
+.DS_Store
+Thumbs.db

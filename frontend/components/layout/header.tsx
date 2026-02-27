@@ -1,0 +1,101 @@
+"use client";
+
+import { Search, Bell, Menu, User, ChevronDown } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useState, useRef, useEffect } from "react";
+
+interface HeaderProps {
+  onMenuClick: () => void;
+}
+
+export function Header({ onMenuClick }: HeaderProps) {
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        userMenuRef.current &&
+        !userMenuRef.current.contains(event.target as Node)
+      ) {
+        setUserMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  return (
+    <header className="flex h-16 items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4 lg:px-6">
+      {/* Left: hamburger + search */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={onMenuClick}
+          className="rounded-md p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-border)] lg:hidden"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+
+        <div className="relative hidden sm:block">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-muted)]" />
+          <input
+            type="text"
+            placeholder="Search..."
+            className="h-9 w-64 rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] pl-9 pr-3 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] outline-none focus:border-[var(--color-primary)] focus:ring-1 focus:ring-[var(--color-primary)]"
+          />
+        </div>
+      </div>
+
+      {/* Right: notifications + user */}
+      <div className="flex items-center gap-2">
+        {/* Mobile search */}
+        <button className="rounded-md p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-border)] sm:hidden">
+          <Search className="h-5 w-5" />
+        </button>
+
+        {/* Notification bell */}
+        <button className="relative rounded-md p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-border)]">
+          <Bell className="h-5 w-5" />
+          <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-[var(--color-error)]" />
+        </button>
+
+        {/* User dropdown */}
+        <div ref={userMenuRef} className="relative">
+          <button
+            onClick={() => setUserMenuOpen(!userMenuOpen)}
+            className="flex items-center gap-2 rounded-lg p-1.5 hover:bg-[var(--color-border)]"
+          >
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--color-primary)]/10">
+              <User className="h-4 w-4 text-[var(--color-primary)]" />
+            </div>
+            <span className="hidden text-sm font-medium text-[var(--color-text)] md:block">
+              Farmer
+            </span>
+            <ChevronDown className="hidden h-4 w-4 text-[var(--color-text-muted)] md:block" />
+          </button>
+
+          {userMenuOpen && (
+            <div className="absolute right-0 top-full mt-1 w-48 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-lg">
+              <a
+                href="/dashboard/settings"
+                className="block px-4 py-2 text-sm text-[var(--color-text)] hover:bg-[var(--color-border)]"
+              >
+                Profile
+              </a>
+              <a
+                href="/dashboard/settings"
+                className="block px-4 py-2 text-sm text-[var(--color-text)] hover:bg-[var(--color-border)]"
+              >
+                Settings
+              </a>
+              <div className="my-1 border-t border-[var(--color-border)]" />
+              <button className="w-full px-4 py-2 text-left text-sm text-[var(--color-error)] hover:bg-[var(--color-border)]">
+                Sign out
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </header>
+  );
+}

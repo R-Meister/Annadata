@@ -68,3 +68,21 @@ htmlcov/
 # Keep all data files in data/interim/ directory
 !**/data/interim/**/*
 !**/data/interim/
+
+# Docker
+docker-compose.override.yml
+
+# PostgreSQL data
+postgres_data/
+
+# Redis data
+redis_data/
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Node
+node_modules/
+.next/

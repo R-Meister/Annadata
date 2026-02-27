@@ -1,0 +1,27 @@
+# ============================================================
+# Dockerfile template for Celery workers
+# Each service can have its own Celery worker for ML tasks
+# ============================================================
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy shared modules
+COPY services/shared/ /app/services/shared/
+
+# Copy service code
+COPY . .
+
+# Run celery worker
+CMD ["celery", "-A", "services.shared.celery_app.app.celery_app", "worker", \
+     "--loglevel=info", "--concurrency=2", "--max-tasks-per-child=50"]
