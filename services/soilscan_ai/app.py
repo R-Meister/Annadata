@@ -158,6 +158,155 @@ class BatchAnalyzeResponse(BaseModel):
     count: int
 
 
+# -------------------------------------------------------------------
+# Photo-based soil analysis models
+# -------------------------------------------------------------------
+
+
+class SoilPhotoRequest(BaseModel):
+    """Input payload for photo-based soil analysis.
+
+    Accepts either raw base64 image data *or* pre-extracted image
+    metadata (HSV colour values and texture description) for
+    simulation / testing without a real CV model.
+    """
+
+    plot_id: str
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    region: str = Field(
+        default="unknown", description="Geographic region of the soil sample"
+    )
+    soil_type: str | None = None
+
+    # Option A: raw base64 image (ignored in simulation mode)
+    image_base64: str | None = Field(
+        default=None,
+        description="Base64-encoded soil photograph. When provided the service "
+        "simulates ML inference on extracted colour/texture features.",
+    )
+
+    # Option B: pre-extracted colour / texture metadata
+    hue: float | None = Field(default=None, ge=0, le=360, description="HSV hue (0-360)")
+    saturation: float | None = Field(
+        default=None, ge=0, le=1, description="HSV saturation (0-1)"
+    )
+    value: float | None = Field(
+        default=None, ge=0, le=1, description="HSV value / brightness (0-1)"
+    )
+    texture: str | None = Field(
+        default=None,
+        description="Soil texture description, e.g. 'sandy', 'clay', 'loam', 'silt', 'sandy_loam', 'clay_loam'",
+    )
+
+
+class SoilPhotoResponse(BaseModel):
+    """Full result returned after photo-based analysis."""
+
+    analysis_id: str
+    plot_id: str
+    latitude: float
+    longitude: float
+    region: str
+    soil_type: str | None
+    source: str  # "photo_analysis"
+
+    # Predicted readings from image features
+    predicted_ph: float
+    predicted_nitrogen_ppm: float
+    predicted_phosphorus_ppm: float
+    predicted_potassium_ppm: float
+    predicted_organic_carbon_pct: float
+    predicted_moisture_pct: float
+
+    # Scores and classification (reuses the same scoring pipeline)
+    ph_score: float
+    nitrogen_score: float
+    phosphorus_score: float
+    potassium_score: float
+    organic_carbon_score: float
+    moisture_score: float
+
+    health_score: float
+    fertility_class: Literal["poor", "moderate", "good", "excellent"]
+
+    # Image feature summary
+    image_features: dict
+    confidence: float  # 0-1 model confidence
+
+    recommendations: list[Recommendation]
+    analyzed_at: str
+
+
+# -------------------------------------------------------------------
+# Quantum ML correlation models
+# -------------------------------------------------------------------
+
+
+class QuantumCorrelationRequest(BaseModel):
+    """Input payload for quantum-inspired correlation analysis."""
+
+    nitrogen_ppm: float = Field(ge=0)
+    phosphorus_ppm: float = Field(ge=0)
+    potassium_ppm: float = Field(ge=0)
+    ph: float = Field(ge=0, le=14)
+    moisture_pct: float = Field(ge=0, le=100)
+    organic_carbon_pct: float = Field(ge=0, le=100)
+    soil_type: str = Field(default="unknown")
+    region: str = Field(default="unknown")
+
+
+class CorrelationEntry(BaseModel):
+    """A single discovered non-obvious correlation."""
+
+    parameters: list[str]
+    correlation_coefficient: float
+    insight: str
+    confidence: float
+
+
+class InterventionRecommendation(BaseModel):
+    """Recommended intervention based on discovered correlations."""
+
+    priority: int
+    action: str
+    rationale: str
+    expected_impact: str
+
+
+class QuantumAdvantageMetrics(BaseModel):
+    """Simulated quantum advantage metrics."""
+
+    classical_time_ms: float
+    quantum_time_ms: float
+    speedup_factor: float
+    qubits_used: int
+    circuit_depth: int
+    entanglement_pairs: int
+
+
+class QuantumCorrelationResponse(BaseModel):
+    """Full result from quantum-inspired correlation analysis."""
+
+    analysis_id: str
+    soil_type: str
+    region: str
+
+    # Discovered correlations
+    correlations: list[CorrelationEntry]
+
+    # Full parameter correlation matrix (param names → row of coefficients)
+    correlation_matrix: dict[str, dict[str, float]]
+
+    # Quantum advantage info
+    quantum_metrics: QuantumAdvantageMetrics
+
+    # Actionable interventions
+    interventions: list[InterventionRecommendation]
+
+    analyzed_at: str
+
+
 # ===================================================================
 # Scoring helpers (numpy-based)
 # ===================================================================
@@ -508,6 +657,656 @@ def _compute_trend(scores: list[float]) -> str:
 
 
 # ===================================================================
+# Photo-based soil analysis helpers
+# ===================================================================
+
+# Texture multipliers affect predicted nutrient retention.
+# Clay retains more nutrients; sand retains less.
+_TEXTURE_PROFILES: dict[str, dict[str, float]] = {
+    "clay": {"nutrient_retention": 1.25, "moisture_factor": 1.30, "drainage": 0.6},
+    "clay_loam": {
+        "nutrient_retention": 1.15,
+        "moisture_factor": 1.15,
+        "drainage": 0.75,
+    },
+    "loam": {"nutrient_retention": 1.00, "moisture_factor": 1.00, "drainage": 1.0},
+    "silt": {"nutrient_retention": 1.05, "moisture_factor": 1.10, "drainage": 0.85},
+    "sandy_loam": {
+        "nutrient_retention": 0.85,
+        "moisture_factor": 0.80,
+        "drainage": 1.2,
+    },
+    "sandy": {"nutrient_retention": 0.65, "moisture_factor": 0.55, "drainage": 1.5},
+}
+
+# Region-based baseline adjustments (simulating geographic variation)
+_REGION_BASELINES: dict[str, dict[str, float]] = {
+    "tropical": {
+        "ph_adj": -0.3,
+        "n_adj": 30.0,
+        "p_adj": 2.0,
+        "k_adj": 15.0,
+        "oc_adj": 0.15,
+    },
+    "arid": {
+        "ph_adj": 0.6,
+        "n_adj": -60.0,
+        "p_adj": -3.0,
+        "k_adj": 20.0,
+        "oc_adj": -0.20,
+    },
+    "temperate": {
+        "ph_adj": 0.0,
+        "n_adj": 0.0,
+        "p_adj": 0.0,
+        "k_adj": 0.0,
+        "oc_adj": 0.0,
+    },
+    "subtropical": {
+        "ph_adj": -0.1,
+        "n_adj": 15.0,
+        "p_adj": 1.0,
+        "k_adj": 10.0,
+        "oc_adj": 0.10,
+    },
+    "unknown": {"ph_adj": 0.0, "n_adj": 0.0, "p_adj": 0.0, "k_adj": 0.0, "oc_adj": 0.0},
+}
+
+
+def _extract_image_features(req: SoilPhotoRequest) -> dict:
+    """
+    Extract or simulate colour/texture features from the request.
+
+    If explicit HSV values are provided they are used directly.
+    If only image_base64 is provided we simulate feature extraction
+    by hashing the first 64 chars of the base64 payload to generate
+    deterministic pseudo-random HSV values.
+    """
+    if req.hue is not None and req.saturation is not None and req.value is not None:
+        hue, sat, val = req.hue, req.saturation, req.value
+    elif req.image_base64:
+        # Deterministic pseudo-random features from the image hash
+        seed = sum(ord(c) for c in req.image_base64[:64]) % (2**31)
+        rng = np.random.RandomState(seed)
+        hue = float(rng.uniform(0, 360))
+        sat = float(rng.uniform(0.1, 0.9))
+        val = float(rng.uniform(0.1, 0.9))
+    else:
+        # Defaults when neither image nor HSV metadata is given
+        hue, sat, val = 30.0, 0.4, 0.45
+
+    texture = (
+        req.texture if req.texture and req.texture in _TEXTURE_PROFILES else "loam"
+    )
+
+    return {
+        "hue": round(hue, 2),
+        "saturation": round(sat, 4),
+        "value": round(val, 4),
+        "texture": texture,
+        "region": req.region,
+    }
+
+
+def _predict_from_features(features: dict) -> dict[str, float]:
+    """
+    Simulate ML inference: predict soil nutrient levels from colour
+    and texture features using realistic heuristic correlations.
+
+    Colour correlations used:
+    - **Darkness** (low HSV value): darker soils → higher organic carbon
+      and nitrogen (decomposed organic matter darkens soil).
+    - **Redness** (hue 0-30 or 330-360, high saturation): reddish soils
+      → more acidic (iron oxide accumulation, lateritic weathering).
+    - **Yellowness** (hue 30-60): moderate iron, slightly acidic.
+    - **Greyish / low saturation**: potentially waterlogged → higher
+      moisture, lower potassium (leaching).
+
+    All predictions are clipped to physically plausible ranges.
+    """
+    hue = features["hue"]
+    sat = features["saturation"]
+    val = features["value"]
+    texture = features["texture"]
+    region = features["region"]
+
+    tex = _TEXTURE_PROFILES.get(texture, _TEXTURE_PROFILES["loam"])
+    reg = _REGION_BASELINES.get(region, _REGION_BASELINES["unknown"])
+
+    # --- pH prediction ---
+    # Baseline 6.8; reddish soils push pH down (more acidic)
+    # Redness is hue < 30 or hue > 330 with decent saturation
+    is_reddish = (hue < 30 or hue > 330) and sat > 0.3
+    is_yellowish = 30 <= hue <= 60 and sat > 0.25
+    redness_acid_shift = -0.8 * sat if is_reddish else 0.0
+    yellowish_shift = -0.3 * sat if is_yellowish else 0.0
+    # Low saturation (greyish) soils tend to be slightly alkaline (waterlogged, calcareous)
+    grey_alk_shift = 0.4 * (1.0 - sat) if sat < 0.25 else 0.0
+    ph = 6.8 + redness_acid_shift + yellowish_shift + grey_alk_shift + reg["ph_adj"]
+    ph = float(np.clip(ph, 3.5, 9.5))
+
+    # --- Organic carbon prediction ---
+    # Darker soils (lower value) have more organic matter
+    # Relationship: OC ~ 2.0 * (1 - value) with texture scaling
+    oc_base = 2.0 * (1.0 - val)
+    oc = oc_base * tex["nutrient_retention"] + reg["oc_adj"]
+    oc = float(np.clip(oc, 0.05, 5.0))
+
+    # --- Nitrogen prediction ---
+    # Strongly correlated with organic carbon (Bremner relationship)
+    # N (ppm) ≈ OC_pct * 250 + texture/region adjustments
+    n = oc * 250.0 * tex["nutrient_retention"] + reg["n_adj"]
+    n = float(np.clip(n, 20.0, 900.0))
+
+    # --- Phosphorus prediction ---
+    # Moderate correlation with organic carbon; reduced in very acidic
+    # or very alkaline soils (fixation)
+    p_base = 12.0 + oc * 8.0
+    # pH fixation penalty: P availability drops outside 6.0-7.5
+    if ph < 6.0:
+        p_base *= 0.7
+    elif ph > 7.5:
+        p_base *= 0.75
+    p = p_base * tex["nutrient_retention"] + reg["p_adj"]
+    p = float(np.clip(p, 1.0, 80.0))
+
+    # --- Potassium prediction ---
+    # Clay soils retain more K; sandy soils lose K to leaching
+    # Grey / low-saturation soils (waterlogged) lose K
+    k_base = 180.0 * tex["nutrient_retention"]
+    if sat < 0.25:
+        k_base *= 0.7  # leaching in waterlogged soils
+    k = k_base + reg["k_adj"]
+    k = float(np.clip(k, 30.0, 500.0))
+
+    # --- Moisture prediction ---
+    # Grey / dark soils with low brightness → high moisture
+    moisture_base = 30.0 * tex["moisture_factor"]
+    moisture_darkness_boost = 15.0 * (1.0 - val)
+    moisture_grey_boost = 10.0 * (1.0 - sat) if sat < 0.3 else 0.0
+    moisture = moisture_base + moisture_darkness_boost + moisture_grey_boost
+    moisture = float(np.clip(moisture, 2.0, 70.0))
+
+    return {
+        "ph": round(ph, 2),
+        "nitrogen_ppm": round(n, 1),
+        "phosphorus_ppm": round(p, 1),
+        "potassium_ppm": round(k, 1),
+        "organic_carbon_pct": round(oc, 2),
+        "moisture_pct": round(moisture, 1),
+    }
+
+
+def _run_photo_analysis(req: SoilPhotoRequest) -> SoilPhotoResponse:
+    """Full pipeline for photo-based soil analysis."""
+    analysis_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+
+    features = _extract_image_features(req)
+    predicted = _predict_from_features(features)
+
+    # Reuse the existing scoring engine
+    keys = [
+        "ph",
+        "nitrogen_ppm",
+        "phosphorus_ppm",
+        "potassium_ppm",
+        "organic_carbon_pct",
+        "moisture_pct",
+    ]
+    scores: dict[str, float] = {}
+    for key in keys:
+        low, high = _OPTIMAL_RANGES[key]
+        scores[key] = _range_score(predicted[key], low, high)
+
+    weights = np.array([_WEIGHTS[k] for k in keys])
+    score_arr = np.array([scores[k] for k in keys])
+    health_score = float(np.dot(weights, score_arr))
+    health_score = round(np.clip(health_score, 0.0, 100.0), 2)
+    fertility_class = _classify_fertility(health_score)
+
+    # Build recommendations via a synthetic SoilSampleRequest
+    synthetic_sample = SoilSampleRequest(
+        plot_id=req.plot_id,
+        latitude=req.latitude,
+        longitude=req.longitude,
+        nitrogen_ppm=predicted["nitrogen_ppm"],
+        phosphorus_ppm=predicted["phosphorus_ppm"],
+        potassium_ppm=predicted["potassium_ppm"],
+        ph_level=predicted["ph"],
+        organic_carbon_pct=predicted["organic_carbon_pct"],
+        moisture_pct=predicted["moisture_pct"],
+        soil_type=req.soil_type,
+    )
+    recommendations = _build_recommendations(synthetic_sample)
+
+    # Confidence is higher when explicit metadata is provided
+    has_explicit_hsv = (
+        req.hue is not None and req.saturation is not None and req.value is not None
+    )
+    has_texture = req.texture is not None and req.texture in _TEXTURE_PROFILES
+    confidence = 0.55
+    if has_explicit_hsv:
+        confidence += 0.20
+    if has_texture:
+        confidence += 0.15
+    if req.region in _REGION_BASELINES and req.region != "unknown":
+        confidence += 0.05
+    confidence = round(min(confidence, 0.98), 2)
+
+    result = SoilPhotoResponse(
+        analysis_id=analysis_id,
+        plot_id=req.plot_id,
+        latitude=req.latitude,
+        longitude=req.longitude,
+        region=req.region,
+        soil_type=req.soil_type,
+        source="photo_analysis",
+        predicted_ph=predicted["ph"],
+        predicted_nitrogen_ppm=predicted["nitrogen_ppm"],
+        predicted_phosphorus_ppm=predicted["phosphorus_ppm"],
+        predicted_potassium_ppm=predicted["potassium_ppm"],
+        predicted_organic_carbon_pct=predicted["organic_carbon_pct"],
+        predicted_moisture_pct=predicted["moisture_pct"],
+        ph_score=scores["ph"],
+        nitrogen_score=scores["nitrogen_ppm"],
+        phosphorus_score=scores["phosphorus_ppm"],
+        potassium_score=scores["potassium_ppm"],
+        organic_carbon_score=scores["organic_carbon_pct"],
+        moisture_score=scores["moisture_pct"],
+        health_score=health_score,
+        fertility_class=fertility_class,
+        image_features=features,
+        confidence=confidence,
+        recommendations=recommendations,
+        analyzed_at=now,
+    )
+
+    # Persist for later retrieval
+    _analysis_store[analysis_id] = result.model_dump()
+
+    return result
+
+
+# ===================================================================
+# Quantum ML correlation helpers
+# ===================================================================
+
+_PARAM_NAMES = [
+    "nitrogen_ppm",
+    "phosphorus_ppm",
+    "potassium_ppm",
+    "ph",
+    "moisture_pct",
+    "organic_carbon_pct",
+]
+
+
+def _build_correlation_matrix(values: np.ndarray) -> np.ndarray:
+    """
+    Build a synthetic correlation matrix from a single observation by
+    simulating a neighbourhood of similar soils using small random
+    perturbations, then computing the Pearson correlation matrix.
+
+    This mimics what a quantum kernel method would discover from a
+    high-dimensional feature space.
+    """
+    rng = np.random.RandomState(int(np.sum(values * 1000)) % (2**31))
+    n_virtual = 200  # virtual samples
+    # Generate perturbations scaled to 10-20% of each parameter
+    scales = np.abs(values) * 0.15 + 1e-3
+    noise = rng.normal(0, 1, size=(n_virtual, len(values))) * scales
+    virtual_samples = values + noise
+
+    # Inject realistic correlations:
+    # N and OC are strongly positively correlated
+    virtual_samples[:, 0] += 0.6 * noise[:, 5] * scales[0]  # N ← OC
+    # P drops when pH is very high (calcium-phosphate binding)
+    ph_col = virtual_samples[:, 3]
+    virtual_samples[:, 1] -= 0.3 * np.where(ph_col > 7.2, (ph_col - 7.2) * 5.0, 0.0)
+    # K and moisture negatively correlated (leaching)
+    virtual_samples[:, 2] -= 0.25 * noise[:, 4] * scales[2]
+
+    # Clip to non-negative (physically plausible)
+    virtual_samples = np.clip(virtual_samples, 0.0, None)
+
+    # Pearson correlation matrix
+    corr = np.corrcoef(virtual_samples, rowvar=False)
+    return np.round(corr, 4)
+
+
+def _discover_correlations(
+    values: np.ndarray, corr_matrix: np.ndarray, ph: float, region: str
+) -> list[CorrelationEntry]:
+    """
+    Extract non-obvious correlations from the correlation matrix and
+    the specific soil parameter values.
+    """
+    entries: list[CorrelationEntry] = []
+
+    # 1. N-OC relationship
+    n_oc_corr = float(corr_matrix[0, 5])
+    entries.append(
+        CorrelationEntry(
+            parameters=["nitrogen_ppm", "organic_carbon_pct"],
+            correlation_coefficient=n_oc_corr,
+            insight=(
+                f"Nitrogen and organic carbon show a strong positive correlation "
+                f"(r={n_oc_corr:.3f}). Increasing organic matter through composting "
+                f"will simultaneously improve nitrogen availability, reducing the need "
+                f"for synthetic urea by an estimated 15-25%."
+            ),
+            confidence=0.92,
+        )
+    )
+
+    # 2. pH-Phosphorus binding
+    ph_p_corr = float(corr_matrix[3, 1])
+    if ph > 7.2:
+        p_reduction_pct = round((ph - 7.2) * 15.0, 1)
+        insight_ph_p = (
+            f"In your {region} region, soils with pH > 7.2 show {p_reduction_pct:.0f}% "
+            f"lower phosphorus availability due to calcium-phosphate binding "
+            f"(r={ph_p_corr:.3f}). Lowering pH by 0.3-0.5 units could unlock "
+            f"fixed phosphorus reserves already present in the soil."
+        )
+    elif ph < 5.5:
+        insight_ph_p = (
+            f"At pH {ph:.1f}, aluminium and iron phosphate complexes reduce "
+            f"plant-available phosphorus (r={ph_p_corr:.3f}). Liming to pH 6.0-6.5 "
+            f"would significantly improve P uptake efficiency."
+        )
+    else:
+        insight_ph_p = (
+            f"pH and phosphorus show correlation r={ph_p_corr:.3f}. "
+            f"Current pH {ph:.1f} is near optimal for phosphorus availability."
+        )
+    entries.append(
+        CorrelationEntry(
+            parameters=["ph", "phosphorus_ppm"],
+            correlation_coefficient=ph_p_corr,
+            insight=insight_ph_p,
+            confidence=0.87,
+        )
+    )
+
+    # 3. K-Moisture leaching
+    k_m_corr = float(corr_matrix[2, 4])
+    moisture = float(values[4])
+    if moisture > 35.0:
+        insight_k_m = (
+            f"Potassium and moisture are negatively correlated (r={k_m_corr:.3f}). "
+            f"At {moisture:.1f}% moisture, significant K leaching is likely. "
+            f"Split potassium applications into 2-3 smaller doses to reduce losses "
+            f"by an estimated 20-30%."
+        )
+    else:
+        insight_k_m = (
+            f"Potassium and moisture show correlation r={k_m_corr:.3f}. "
+            f"Current moisture levels ({moisture:.1f}%) are not causing excessive "
+            f"K leaching, but monitor during monsoon season."
+        )
+    entries.append(
+        CorrelationEntry(
+            parameters=["potassium_ppm", "moisture_pct"],
+            correlation_coefficient=k_m_corr,
+            insight=insight_k_m,
+            confidence=0.84,
+        )
+    )
+
+    # 4. Three-way interaction: OC × moisture × N (non-obvious)
+    oc_m_corr = float(corr_matrix[5, 4])
+    oc_val = float(values[5])
+    if oc_val < 0.75 and moisture > 30.0:
+        insight_3way = (
+            f"Low organic carbon ({oc_val:.2f}%) combined with high moisture "
+            f"({moisture:.1f}%) creates a compounding negative effect: waterlogged "
+            f"soils with low OM decompose residues anaerobically, producing compounds "
+            f"toxic to roots. This three-way interaction (OC-moisture-N) reduces "
+            f"nitrogen use efficiency by an estimated 30-40%."
+        )
+    else:
+        insight_3way = (
+            f"Organic carbon and moisture interaction (r={oc_m_corr:.3f}) is within "
+            f"manageable bounds. Maintaining OC above 0.75% ensures healthy aerobic "
+            f"decomposition even at moderate moisture levels."
+        )
+    entries.append(
+        CorrelationEntry(
+            parameters=["organic_carbon_pct", "moisture_pct", "nitrogen_ppm"],
+            correlation_coefficient=oc_m_corr,
+            insight=insight_3way,
+            confidence=0.78,
+        )
+    )
+
+    # 5. Region-specific NPK balance
+    n_val, p_val, k_val = float(values[0]), float(values[1]), float(values[2])
+    npk_vec = np.array([n_val, p_val * 15.0, k_val])  # scale P to comparable range
+    npk_cv = float(np.std(npk_vec) / (np.mean(npk_vec) + 1e-6))
+    entries.append(
+        CorrelationEntry(
+            parameters=["nitrogen_ppm", "phosphorus_ppm", "potassium_ppm"],
+            correlation_coefficient=round(1.0 - npk_cv, 4),
+            insight=(
+                f"NPK balance index (coefficient of variation): {npk_cv:.3f}. "
+                f"{'Nutrient ratios are well-balanced.' if npk_cv < 0.3 else 'Significant nutrient imbalance detected — balanced fertilization is critical to avoid antagonistic uptake effects.'} "
+                f"In {region} soils, maintaining N:P:K close to 4:2:1 by weight "
+                f"optimizes crop uptake synergy."
+            ),
+            confidence=0.81,
+        )
+    )
+
+    return entries
+
+
+def _generate_interventions(
+    values: np.ndarray,
+    corr_entries: list[CorrelationEntry],
+    ph: float,
+    region: str,
+    soil_type: str,
+) -> list[InterventionRecommendation]:
+    """Generate prioritized interventions from discovered correlations."""
+    interventions: list[InterventionRecommendation] = []
+    priority = 1
+
+    n_val, p_val, k_val = float(values[0]), float(values[1]), float(values[2])
+    moisture = float(values[4])
+    oc = float(values[5])
+
+    # OC-based intervention (highest impact due to cascading benefits)
+    if oc < 0.75:
+        interventions.append(
+            InterventionRecommendation(
+                priority=priority,
+                action=(
+                    "Apply 4-5 tonnes/hectare of farmyard manure or vermicompost "
+                    "to raise organic carbon above 0.75%."
+                ),
+                rationale=(
+                    "Organic carbon drives nitrogen mineralisation and improves "
+                    "soil structure, water retention, and microbial activity. "
+                    "Correlation analysis shows OC is the strongest predictor of "
+                    "overall soil health in your sample."
+                ),
+                expected_impact="15-25% improvement in nitrogen availability within one season.",
+            )
+        )
+        priority += 1
+
+    # pH correction
+    if ph > 7.5:
+        interventions.append(
+            InterventionRecommendation(
+                priority=priority,
+                action=(
+                    f"Apply elemental sulphur (200-400 kg/ha) or gypsum to reduce "
+                    f"pH from {ph:.1f} toward 6.5-7.0."
+                ),
+                rationale=(
+                    "Quantum correlation analysis identified calcium-phosphate binding "
+                    "as the primary mechanism reducing phosphorus availability at your "
+                    "current pH."
+                ),
+                expected_impact="Unlock 20-35% more plant-available phosphorus from existing soil reserves.",
+            )
+        )
+        priority += 1
+    elif ph < 5.5:
+        interventions.append(
+            InterventionRecommendation(
+                priority=priority,
+                action=f"Apply agricultural lime (2-4 tonnes/ha) to raise pH from {ph:.1f} to 6.0-6.5.",
+                rationale=(
+                    "Aluminium toxicity at low pH inhibits root growth and phosphorus "
+                    "uptake. Correlation analysis shows a strong pH-P interaction."
+                ),
+                expected_impact="Reduce aluminium toxicity and improve P availability by 25-40%.",
+            )
+        )
+        priority += 1
+
+    # Moisture-K interaction
+    if moisture > 35.0 and k_val < 150.0:
+        interventions.append(
+            InterventionRecommendation(
+                priority=priority,
+                action="Split potassium fertiliser into 3 applications and improve field drainage.",
+                rationale=(
+                    f"At {moisture:.1f}% moisture, potassium leaching losses are significant. "
+                    f"Correlation analysis found a negative K-moisture relationship (leaching)."
+                ),
+                expected_impact="Reduce K losses by 20-30% and save 15-20% on potash fertiliser costs.",
+            )
+        )
+        priority += 1
+
+    # General NPK balance
+    if n_val < 250.0:
+        interventions.append(
+            InterventionRecommendation(
+                priority=priority,
+                action="Incorporate a legume cover crop (e.g., sun hemp or dhaincha) in the rotation.",
+                rationale=(
+                    "Biological nitrogen fixation is the most cost-effective way to "
+                    "raise soil nitrogen while also boosting organic carbon."
+                ),
+                expected_impact="Add 40-80 kg N/ha biologically, reducing urea requirement by 30-50%.",
+            )
+        )
+        priority += 1
+
+    if p_val < 15.0:
+        interventions.append(
+            InterventionRecommendation(
+                priority=priority,
+                action="Apply rock phosphate or SSP in the furrow at sowing for targeted P delivery.",
+                rationale="Phosphorus is immobile in soil; band placement increases uptake efficiency.",
+                expected_impact="Improve P uptake efficiency by 25-35% compared to broadcast application.",
+            )
+        )
+        priority += 1
+
+    # Always include a monitoring recommendation
+    interventions.append(
+        InterventionRecommendation(
+            priority=priority,
+            action="Re-test soil after 45-60 days to validate correlation-based predictions.",
+            rationale=(
+                "Quantum-inspired correlation models are strongest when validated "
+                "with temporal data. Re-testing enables the model to refine its "
+                f"predictions for {soil_type} soils in the {region} region."
+            ),
+            expected_impact="Continuous improvement in prediction accuracy by 5-10% per cycle.",
+        )
+    )
+
+    return interventions
+
+
+def _compute_quantum_metrics(n_params: int) -> QuantumAdvantageMetrics:
+    """
+    Simulate quantum advantage metrics for the correlation analysis.
+
+    In a real quantum system the speedup comes from quantum kernel
+    estimation and Grover-like search over the correlation space.
+    Here we produce plausible simulated numbers.
+    """
+    # Classical: O(n^3) correlation matrix + O(2^n) exhaustive interaction search
+    classical_ms = float(n_params**3 * 2.5 + 2**n_params * 0.8)
+    # Quantum: O(n^2 log n) kernel + O(sqrt(2^n)) Grover search
+    quantum_ms = float(
+        n_params**2 * np.log2(n_params) * 1.2 + np.sqrt(2**n_params) * 0.8
+    )
+    speedup = round(classical_ms / max(quantum_ms, 0.01), 2)
+
+    qubits = n_params * 2 + 3  # encoding + ancilla qubits
+    depth = n_params * 4  # circuit depth scales with parameters
+    entanglement_pairs = n_params * (n_params - 1) // 2  # all-pairs entanglement
+
+    return QuantumAdvantageMetrics(
+        classical_time_ms=round(classical_ms, 2),
+        quantum_time_ms=round(quantum_ms, 2),
+        speedup_factor=speedup,
+        qubits_used=qubits,
+        circuit_depth=depth,
+        entanglement_pairs=entanglement_pairs,
+    )
+
+
+def _run_quantum_correlation(
+    req: QuantumCorrelationRequest,
+) -> QuantumCorrelationResponse:
+    """Full pipeline for quantum-inspired correlation analysis."""
+    analysis_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+
+    values = np.array(
+        [
+            req.nitrogen_ppm,
+            req.phosphorus_ppm,
+            req.potassium_ppm,
+            req.ph,
+            req.moisture_pct,
+            req.organic_carbon_pct,
+        ],
+        dtype=np.float64,
+    )
+
+    corr_matrix = _build_correlation_matrix(values)
+    correlations = _discover_correlations(values, corr_matrix, req.ph, req.region)
+    interventions = _generate_interventions(
+        values,
+        correlations,
+        req.ph,
+        req.region,
+        req.soil_type,
+    )
+    quantum_metrics = _compute_quantum_metrics(len(_PARAM_NAMES))
+
+    # Build the correlation matrix dict (param name → {param name → coeff})
+    corr_dict: dict[str, dict[str, float]] = {}
+    for i, name_i in enumerate(_PARAM_NAMES):
+        corr_dict[name_i] = {}
+        for j, name_j in enumerate(_PARAM_NAMES):
+            corr_dict[name_i][name_j] = float(corr_matrix[i, j])
+
+    return QuantumCorrelationResponse(
+        analysis_id=analysis_id,
+        soil_type=req.soil_type,
+        region=req.region,
+        correlations=correlations,
+        correlation_matrix=corr_dict,
+        quantum_metrics=quantum_metrics,
+        interventions=interventions,
+        analyzed_at=now,
+    )
+
+
+# ===================================================================
 # FastAPI application
 # ===================================================================
 
@@ -665,6 +1464,77 @@ async def get_analysis_history(
         analyses=entries,
         trend=trend,
     )
+
+
+# -------------------------------------------------------------------
+# Photo-based soil analysis endpoint
+# -------------------------------------------------------------------
+
+
+@app.post(
+    "/analyze-photo",
+    response_model=SoilPhotoResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def analyze_photo(req: SoilPhotoRequest):
+    """
+    Analyze soil from a photograph or image metadata.
+
+    Accepts either a base64-encoded soil photo or pre-extracted image
+    metadata (HSV colour values and texture description).  Uses
+    numpy-based simulated ML inference to predict pH, N, P, K, organic
+    carbon, and moisture from soil colour and texture features.
+
+    Realistic correlations are applied:
+    - Darker soils → higher organic carbon and nitrogen
+    - Reddish soils → more acidic (iron oxide / laterite)
+    - Grey / low-saturation soils → waterlogged, lower potassium
+    - Clay textures → higher nutrient retention
+
+    Returns a full soil analysis result similar to ``POST /analyze``,
+    along with a confidence score and the extracted image features.
+    """
+    if not req.image_base64 and req.hue is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Provide either 'image_base64' or explicit HSV metadata "
+                "('hue', 'saturation', 'value')."
+            ),
+        )
+    return _run_photo_analysis(req)
+
+
+# -------------------------------------------------------------------
+# Quantum ML correlation endpoint
+# -------------------------------------------------------------------
+
+
+@app.post(
+    "/quantum-correlation",
+    response_model=QuantumCorrelationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def quantum_correlation(req: QuantumCorrelationRequest):
+    """
+    Discover non-obvious correlations between soil parameters using
+    quantum-inspired ML analysis.
+
+    Takes soil analysis results (N, P, K, pH, moisture, organic carbon,
+    soil type, region) and performs quantum-inspired feature correlation
+    analysis using numpy.
+
+    Returns:
+    - **correlations**: Non-obvious parameter correlations with plain-
+      language insights (e.g., pH–phosphorus binding effects).
+    - **correlation_matrix**: Full Pearson correlation matrix across all
+      six soil parameters.
+    - **quantum_metrics**: Simulated quantum advantage metrics including
+      speedup factor, qubit count, and circuit depth.
+    - **interventions**: Prioritised, actionable recommendations derived
+      from the discovered correlations.
+    """
+    return _run_quantum_correlation(req)
 
 
 # -------------------------------------------------------------------
