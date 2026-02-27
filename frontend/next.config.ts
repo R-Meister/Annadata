@@ -6,6 +6,11 @@ const nextConfig: NextConfig = {
   // Service API rewrites — route frontend API calls to backend services
   async rewrites() {
     return [
+      // Auth routes — proxied to MSP Mitra (all services share the same auth)
+      {
+        source: "/api/auth/:path*",
+        destination: `${process.env.NEXT_PUBLIC_MSP_MITRA_URL || "http://localhost:8001"}/auth/:path*`,
+      },
       {
         source: "/api/msp-mitra/:path*",
         destination: `${process.env.NEXT_PUBLIC_MSP_MITRA_URL || "http://localhost:8001"}/:path*`,

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Card,
   CardHeader,
@@ -11,13 +11,25 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { authApi } from "@/lib/api";
+import { useAuthStore } from "@/store/auth-store";
 
 type Mode = "login" | "register";
 
 const roles = ["farmer", "trader", "researcher"] as const;
 
 export default function AuthPage() {
+  return (
+    <Suspense fallback={null}>
+      <AuthForm />
+    </Suspense>
+  );
+}
+
+function AuthForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get("redirect") || "/dashboard";
+  const loginToStore = useAuthStore((s) => s.login);
   const [mode, setMode] = useState<Mode>("login");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,18 +59,28 @@ export default function AuthPage() {
     resetForm();
   }
 
+  /** After getting a token, fetch the user profile and store both in Zustand */
+  async function authenticateAndRedirect(token: string) {
+    const profile = await authApi.getProfile(token);
+    loginToStore(token, profile);
+    router.push(redirectTo);
+  }
+
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
     try {
       const res = await authApi.login(email, password);
-      localStorage.setItem("token", res.token);
-      router.push("/dashboard");
+      await authenticateAndRedirect(res.access_token);
     } catch (err: unknown) {
-      setError(
-        err instanceof Error ? err.message : "Login failed. Please try again.",
-      );
+      if (err instanceof Error) {
+        // Try to extract detail from API error body
+        const apiErr = err as { body?: { detail?: string } };
+        setError(apiErr.body?.detail ?? err.message);
+      } else {
+        setError("Login failed. Please try again.");
+      }
     } finally {
       setLoading(false);
     }
@@ -70,20 +92,22 @@ export default function AuthPage() {
     setError(null);
     try {
       const res = await authApi.register({
-        name: fullName,
         email,
         password,
+        full_name: fullName,
         phone: phone || undefined,
-        location: [state, district].filter(Boolean).join(", ") || undefined,
+        role: role || undefined,
+        state: state || undefined,
+        district: district || undefined,
       });
-      localStorage.setItem("token", res.token);
-      router.push("/dashboard");
+      await authenticateAndRedirect(res.access_token);
     } catch (err: unknown) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Registration failed. Please try again.",
-      );
+      if (err instanceof Error) {
+        const apiErr = err as { body?: { detail?: string } };
+        setError(apiErr.body?.detail ?? err.message);
+      } else {
+        setError("Registration failed. Please try again.");
+      }
     } finally {
       setLoading(false);
     }
@@ -116,7 +140,7 @@ export default function AuthPage() {
           )}
 
           {mode === "login" ? (
-            /* ——— Login form ——— */
+            /* --- Login form --- */
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
                 <label htmlFor="login-email" className={labelClass}>
@@ -153,7 +177,7 @@ export default function AuthPage() {
               </Button>
             </form>
           ) : (
-            /* ——— Registration form ——— */
+            /* --- Registration form --- */
             <form onSubmit={handleRegister} className="space-y-4">
               <div>
                 <label htmlFor="reg-email" className={labelClass}>

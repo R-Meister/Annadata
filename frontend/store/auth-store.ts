@@ -3,6 +3,23 @@ import { persist } from "zustand/middleware";
 import type { UserProfile } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
+// Cookie helpers — used by Next.js middleware for route protection
+// ---------------------------------------------------------------------------
+
+function setAuthCookie() {
+  if (typeof document !== "undefined") {
+    document.cookie = "annadata-authed=1; path=/; SameSite=Lax";
+  }
+}
+
+function clearAuthCookie() {
+  if (typeof document !== "undefined") {
+    document.cookie =
+      "annadata-authed=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -26,19 +43,23 @@ export const useAuthStore = create<AuthState>()(
       token: null,
       isAuthenticated: false,
 
-      login: (token, user) =>
+      login: (token, user) => {
+        setAuthCookie();
         set({
           token,
           user,
           isAuthenticated: true,
-        }),
+        });
+      },
 
-      logout: () =>
+      logout: () => {
+        clearAuthCookie();
         set({
           token: null,
           user: null,
           isAuthenticated: false,
-        }),
+        });
+      },
 
       setUser: (user) => set({ user }),
     }),
@@ -51,7 +72,15 @@ export const useAuthStore = create<AuthState>()(
       }),
       onRehydrateStorage: () => (state) => {
         if (state) {
-          state.isAuthenticated = state.token !== null && state.user !== null;
+          const authenticated =
+            state.token !== null && state.user !== null;
+          state.isAuthenticated = authenticated;
+          // Sync cookie with persisted state
+          if (authenticated) {
+            setAuthCookie();
+          } else {
+            clearAuthCookie();
+          }
         }
       },
     },

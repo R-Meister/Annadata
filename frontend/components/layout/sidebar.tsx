@@ -20,6 +20,7 @@ import {
   CloudSun,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/store/auth-store";
 
 interface NavItem {
   label: string;
@@ -49,6 +50,12 @@ interface SidebarProps {
 
 export function Sidebar({ open, onClose }: SidebarProps) {
   const pathname = usePathname();
+  const user = useAuthStore((s) => s.user);
+
+  const displayName = user?.full_name || user?.email || "User";
+  const displayRole = user?.role
+    ? user.role.charAt(0).toUpperCase() + user.role.slice(1)
+    : "View profile";
 
   return (
     <>
@@ -134,10 +141,10 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             </div>
             <div className="flex flex-col">
               <span className="text-sm font-medium text-[var(--color-text)]">
-                Farmer
+                {displayName}
               </span>
               <span className="text-xs text-[var(--color-text-muted)]">
-                View profile
+                {displayRole}
               </span>
             </div>
           </div>
