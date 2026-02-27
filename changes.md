@@ -1,203 +1,127 @@
-Annadata Dockerization & Scaling Plan
+# ANNADATA -- Complete Backend, Frontend & Database Roadmap
 
-Summary
-- Monorepo with multiple Python FastAPI backends and Node frontends, shared datasets and model artifacts. Goal: make the repo developer-friendly via Docker Compose for laptops, provide templates to scale to 10+ idea services, and outline production migration.
+## 1. Core Stack (Finalized)
 
-Actionable Steps (top-level)
-1. Audit repo and confirm service entrypoints.
-2. Define a service layout: `services/`, `libs/`, `infra/`.
-3. Add Dockerfile templates and per-service `Dockerfile`s.
-4. Create root `docker-compose.yml`, `.env.example`, and per-service env templates.
-5. Scaffold repeatable service template to add 10+ ideas.
-6. Add dev ergonomics (Traefik, profiles, hot-reload) and CI/K8s path.
+### Backend
 
-Detailed Plan
+-   FastAPI (Python 3.11)
+-   Pydantic v2
+-   SQLAlchemy 2.0
+-   PostgreSQL driver: asyncpg
+-   Redis (caching + Celery broker)
+-   Celery (background jobs)
+-   Uvicorn (ASGI server)
 
-1) Audit & Inventory
-- Action: Finalize service list and entrypoints.
-- Files to review: `protein_engineering/backend/app.py`, `src/api/app.py`, `msp_mitra/backend/main.py`, `requirements.txt`, `src/models/saved_models`.
-- Output: canonical `services.json` mapping directory → entrypoint → port → deps.
+### Frontend
 
-2) Define Repo Layout
-- Adopt layout: `services/<name>/backend`, `services/<name>/frontend`, `libs/` for shared code, `infra/` for compose & templates.
-- Create: `infra/docker-templates/Dockerfile.python`, `infra/docker-templates/Dockerfile.node`, `infra/.dockerignore`.
+-   Next.js 16 (App Router)
+-   React 19
+-   TypeScript (strict mode)
+-   Tailwind CSS v4
+-   shadcn/ui (component system)
+-   GSAP (hero + storytelling animations)
+-   Lottie (AI feedback animations)
+-   TanStack Query (server state)
+-   Zustand (client state)
 
-3) Dockerfile Templates
-- Use `python:3.11-slim` and `node:18-alpine`.
-- Backends default to port 8000 (uvicorn); `src/api` 8002; `msp_mitra` 8001. Frontends use dev ports (5173/3000).
-- Bind-mount code and model artifacts during dev.
+### Database
 
-Example Dockerfile (Python FastAPI)
+-   PostgreSQL 15
+-   Redis 7
 
-```Dockerfile
-FROM python:3.11-slim
-ENV PYTHONUNBUFFERED=1
-WORKDIR /app
-COPY requirements.txt /app/
-RUN apt-get update && apt-get install -y build-essential gcc && \
-    pip install --upgrade pip setuptools wheel && \
-    pip install -r requirements.txt && rm -rf /var/lib/apt/lists/*
-COPY . /app
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
-```
+### Containerization
 
-Example Dockerfile (Node frontend)
+-   Docker
+-   Docker Compose (dev orchestration)
+-   Traefik (optional reverse proxy)
 
-```Dockerfile
-FROM node:18-alpine AS builder
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-COPY . .
-RUN npm run build
+------------------------------------------------------------------------
 
-FROM nginx:stable-alpine
-COPY --from=builder /app/dist /usr/share/nginx/html
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
-```
+# 2. Architecture Model
 
-4) Compose Orchestrator (dev)
-- Components: `postgres:15`, `redis:7`, `traefik:v2`, representative services: `protein_engineering_backend`, `src_api`, and a frontend.
-- Mount `./data` and `./src/models/saved_models` read-only into services.
-- Use Compose profiles to opt-in heavy ML services.
+You are building:
 
-Minimal `docker-compose.yml` (proposal)
+ANNADATA OS → Multi-service AI agriculture platform → Each idea =
+independent FastAPI service → Shared PostgreSQL + Redis → Unified
+Next.js frontend (modular dashboard)
 
-```yaml
-version: '3.8'
-services:
-  postgres:
-    image: postgres:15
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: "${POSTGRES_USER:-postgres}"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-postgres}"
-      POSTGRES_DB: "${POSTGRES_DB:-annadata}"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./data:/data:ro
-    ports:
-      - "5432:5432"
+Structure:
 
-  redis:
-    image: redis:7
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
+services/ msp_mitra/ soilscan_ai/ fasal_rakshak/ jal_shakti/
+harvest_shakti/ kisaan_sahayak/
 
-  traefik:
-    image: traefik:v2.10
-    command:
-      - --api.insecure=true
-      - --providers.docker=true
-      - --entryPoints.web.address=:80
-    ports:
-      - "80:80"
-      - "8080:8080"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+frontend/ app/ components/ lib/ store/
 
-  api_service:
-    build:
-      context: .
-      dockerfile: ./infra/docker-templates/Dockerfile.python
-    command: uvicorn src.api.app:app --host 0.0.0.0 --port 8002 --reload
-    volumes:
-      - ./:/app:cached
-      - ./src/models/saved_models:/app/src/models/saved_models:cached
-      - ./data:/app/data:ro
-    ports:
-      - "8002:8002"
-    depends_on:
-      - postgres
-      - redis
+infra/ docker-compose.yml docker-templates/
 
-  protein_engineering_backend:
-    build:
-      context: ./protein_engineering/backend
-    command: uvicorn protein_engineering.backend.app:app --host 0.0.0.0 --port 8000 --reload
-    volumes:
-      - ./protein_engineering/backend:/app:cached
-      - ./protein_engineering/backend/data:/app/data:ro
-      - ./src/models/saved_models:/app/src/models/saved_models:cached
-    ports:
-      - "8000:8000"
-    depends_on:
-      - postgres
+------------------------------------------------------------------------
 
-  frontend_vite:
-    build:
-      context: ./msp_mitra/frontend
-      dockerfile: ./infra/docker-templates/Dockerfile.node
-    command: npm run dev
-    volumes:
-      - ./msp_mitra/frontend:/app:cached
-    ports:
-      - "5173:5173"
-    depends_on:
-      - api_service
+# 3. Docker Compose Services
 
-volumes:
-  pgdata:
-```
+Core Infra: - postgres:15 - redis:7 - traefik (optional)
 
-5) Service Scaffold + Templates for 10 new ideas
-- Create `services/_template` with:
-  - `backend/app.py` (FastAPI stub with health endpoint)
-  - `backend/requirements.txt`
-  - `backend/Dockerfile` (FROM infra template)
-  - `README.md`, `openapi.yaml`, `tests/test_basic.py`
-- Duplicate and rename to create each idea service; register in `docker-compose.yml` via profile.
+Per Idea: - fastapi backend container - celery worker container
 
-6) Data & Model Handling
-- Mount `data/processed` and `src/models/saved_models` into containers; avoid copying large artifacts into images.
-- Consider `minio` service in compose for S3-compatible storage if needed.
+Frontend: - nextjs container
 
-7) Async & Heavy-Job Pattern
-- Use `redis` + `celery`/`rq` for long-running jobs. Provide `worker` service template to process queued tasks.
+------------------------------------------------------------------------
 
-8) Dev Ergonomics & Observability
-- Use Traefik for routing via Docker labels, Compose profiles for optional services, `docker-compose.override.yml` for per-developer overrides.
-- Add healthchecks and basic logging config.
+# 4. Scaling Pattern
 
-9) CI → Production Path
-- For production, migrate to Kubernetes with Helm charts.
-- Add GitHub Actions to build images and run tests; use model serving (BentoML/Seldon) for scalable inference.
+Each new idea should:
 
-Verification & Smoke Tests
-- `docker compose up -d --build`
-- `docker compose logs -f protein_engineering_backend`
-- `curl http://localhost:8000/health`
-- `curl http://localhost:8002/docs`
-- Ensure model loads from `/app/src/models/saved_models` in containers.
+1.  Have its own FastAPI app
+2.  Register itself in docker-compose
+3.  Share PostgreSQL + Redis
+4.  Expose health endpoint
+5.  Use async SQLAlchemy
+6.  Use Celery for heavy ML tasks
 
-Decisions (recommended)
-- Python base: `python:3.11-slim`.
-- Node base: `node:18-alpine`.
-- DB: `postgres:15`.
-- Broker: `redis:7`.
-- Reverse proxy: `traefik:v2.10`.
-- Models: prefer ONNX/TorchScript in prod; keep pickles for dev only.
+------------------------------------------------------------------------
 
-Critical Files to Review
-- `protein_engineering/backend/app.py`
-- `protein_engineering/backend/requirements.txt`
-- `src/api/app.py`
-- `src/config/settings.py`
-- `src/models/saved_models/model_registry.json`
-- `msp_mitra/backend/main.py`
-- `msp_mitra/frontend/package.json`
-- `requirements.txt`
-- `data/processed`
+# 5. Development Flow
 
-Open Questions / Blockers
-- Do you want to refactor to `services/<name>/` now or map compose to current paths? (recommend mapping first)
-- Should model artifacts move to MinIO or stay under `src/models/saved_models`?
-- Any laptop constraints (RAM/disk) to set resource caps in Compose?
+Local Dev: docker compose up --build
 
-Next steps (pick one)
-A) Generate `infra/docker-templates` and a working `docker-compose.yml` plus `.env.example`.
-B) Scaffold `services/_template` and create 3 example idea services to demonstrate pattern.
+Production Path: Docker → Kubernetes → Helm → Horizontal Pod Autoscaling
 
-Choose A or B or request edits to this plan.
+Models: Dev → load from mounted volume Prod → move to S3/MinIO +
+ONNX/TorchScript
+
+------------------------------------------------------------------------
+
+# 6. Clean Roadmap (Agent-Ready Steps)
+
+PHASE 1 -- Foundation - Setup monorepo layout - Create docker
+templates - Setup postgres + redis - Setup base FastAPI service
+template - Setup base Next.js dashboard
+
+PHASE 2 -- Core Platform - Auth system (JWT) - User model + roles -
+Dashboard layout - API gateway routing
+
+PHASE 3 -- Idea Integration - MSP Mitra service - SoilScan AI service -
+Fasal Rakshak service - Kisaan Sahayak multi-agent system - Harvest
+Shakti DSS
+
+PHASE 4 -- AI Scaling - Move long tasks to Celery - Add model registry -
+Add versioning for ML models - Add monitoring
+
+PHASE 5 -- Production Migration - CI/CD - Image builds - Kubernetes
+deployment - Horizontal scaling - Observability (Prometheus + Grafana)
+
+------------------------------------------------------------------------
+
+# Final Stack Summary
+
+Backend: FastAPI + SQLAlchemy 2.0 + PostgreSQL + Redis + Celery
+
+Frontend: Next.js 16 + React 19 + TypeScript + Tailwind v4 + shadcn +
+GSAP + Lottie
+
+Database: PostgreSQL 15
+
+Orchestration: Docker Compose (dev) Kubernetes (production-ready path)
+
+------------------------------------------------------------------------
+
+This roadmap is structured for scaling to 10+ services cleanly.
