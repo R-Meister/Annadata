@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import uuid
 from collections import defaultdict
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import numpy as np
 import uvicorn
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -2216,8 +2218,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Kisaan Sahayak",
-    description="Rule-based agricultural knowledge assistant for Indian farmers",
-    version="1.0.0",
+    description="Multi-Agent Crop Health & Advisory System for Indian farmers — integrating Vision, Verifier, Weather, Market, Memory, and LLM agents",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
@@ -2248,13 +2250,31 @@ async def root():
     """Root endpoint returning service info."""
     return {
         "service": "Kisaan Sahayak",
-        "version": "1.0.0",
+        "version": "2.0.0",
+        "description": "Multi-Agent Crop Health & Advisory System",
         "features": [
             "Natural language farming Q&A in multiple Indian languages",
             "Government scheme eligibility and application assistance",
             "Personalized crop calendar and task reminders",
             "Rule-based knowledge retrieval — no external API keys needed",
+            "Vision Agent — crop disease classification (PlantVillage 38-class, simulated MobileNetV2/ResNet)",
+            "Verifier Agent — risk/severity assessment (LOW/MEDIUM/HIGH/CRITICAL) with action decisions",
+            "Weather Agent — short-term forecast with irrigation advice",
+            "Market Agent — nearby mandi prices with best selling time recommendation",
+            "Memory Agent — farmer interaction logging and pattern analysis",
+            "LLM Agent — WhatsApp-style multilingual summaries (simulated Ollama/Gemini)",
+            "Full Pipeline — single-request end-to-end analysis (photo → disease + risk + treatment + irrigation + market + history)",
         ],
+        "agents": {
+            "vision": "/agent/vision",
+            "verifier": "/agent/verify",
+            "weather": "/agent/weather",
+            "market": "/agent/market",
+            "memory_log": "/agent/memory/log",
+            "memory_get": "/agent/memory/{farmer_id}",
+            "llm": "/agent/llm",
+            "pipeline": "/pipeline/analyze",
+        },
     }
 
 
@@ -2565,6 +2585,1858 @@ async def get_faq(
         total=len(filtered),
         topic_filter=topic,
         faqs=[FAQItem(**f) for f in filtered],
+    )
+
+
+# ============================================================
+# Multi-Agent Pipeline: Knowledge Bases
+# ============================================================
+
+# PlantVillage 38-class disease mapping (MobileNetV2/ResNet simulation)
+# Source: PlantVillage dataset — 54K images, 38 disease classes
+PLANTVILLAGE_CLASSES: list[dict[str, Any]] = [
+    {
+        "index": 0,
+        "label": "Apple___Apple_scab",
+        "crop": "apple",
+        "disease": "Apple Scab",
+        "treatment": "Apply Captan 50 WP @ 2 g/L or Mancozeb 75 WP @ 2.5 g/L. Rake and destroy fallen leaves.",
+        "severity_base": "MEDIUM",
+    },
+    {
+        "index": 1,
+        "label": "Apple___Black_rot",
+        "crop": "apple",
+        "disease": "Black Rot",
+        "treatment": "Prune infected branches. Spray Thiophanate-methyl @ 1 g/L during early season.",
+        "severity_base": "HIGH",
+    },
+    {
+        "index": 2,
+        "label": "Apple___Cedar_apple_rust",
+        "crop": "apple",
+        "disease": "Cedar Apple Rust",
+        "treatment": "Apply Myclobutanil @ 0.5 ml/L. Remove nearby juniper hosts within 1 km radius.",
+        "severity_base": "MEDIUM",
+    },
+    {
+        "index": 3,
+        "label": "Apple___healthy",
+        "crop": "apple",
+        "disease": "Healthy",
+        "treatment": "No treatment needed. Continue regular monitoring.",
+        "severity_base": "LOW",
+    },
+    {
+        "index": 4,
+        "label": "Blueberry___healthy",
+        "crop": "blueberry",
+        "disease": "Healthy",
+        "treatment": "No treatment needed. Maintain soil pH 4.5-5.5.",
+        "severity_base": "LOW",
+    },
+    {
+        "index": 5,
+        "label": "Cherry___Powdery_mildew",
+        "crop": "cherry",
+        "disease": "Powdery Mildew",
+        "treatment": "Spray Sulphur 80 WP @ 3 g/L or Hexaconazole 5 EC @ 2 ml/L. Improve air circulation.",
+        "severity_base": "MEDIUM",
+    },
+    {
+        "index": 6,
+        "label": "Cherry___healthy",
+        "crop": "cherry",
+        "disease": "Healthy",
+        "treatment": "No treatment needed. Regular pruning for air flow.",
+        "severity_base": "LOW",
+    },
+    {
+        "index": 7,
+        "label": "Corn___Cercospora_leaf_spot",
+        "crop": "maize",
+        "disease": "Cercospora Leaf Spot (Gray Leaf Spot)",
+        "treatment": "Apply Azoxystrobin 23 SC @ 1 ml/L. Rotate with non-host crops. Use resistant hybrids.",
+        "severity_base": "MEDIUM",
+    },
+    {
+        "index": 8,
+        "label": "Corn___Common_rust",
+        "crop": "maize",
+        "disease": "Common Rust",
+        "treatment": "Spray Mancozeb 75 WP @ 2.5 g/L or Propiconazole 25 EC @ 1 ml/L at early infection.",
+        "severity_base": "MEDIUM",
+    },
+    {
+        "index": 9,
+        "label": "Corn___Northern_Leaf_Blight",
+        "crop": "maize",
+        "disease": "Northern Leaf Blight",
+        "treatment": "Apply Propiconazole 25 EC @ 1 ml/L. Use resistant varieties like DHM 121.",
+        "severity_base": "HIGH",
+    },
+    {
+        "index": 10,
+        "label": "Corn___healthy",
+        "crop": "maize",
+        "disease": "Healthy",
+        "treatment": "No treatment needed. Continue fall armyworm scouting.",
+        "severity_base": "LOW",
+    },
+    {
+        "index": 11,
+        "label": "Grape___Black_rot",
+        "crop": "grape",
+        "disease": "Black Rot",
+        "treatment": "Spray Mancozeb @ 2.5 g/L pre-bloom. Remove mummified berries. Ensure good drainage.",
+        "severity_base": "HIGH",
+    },
+    {
+        "index": 12,
+        "label": "Grape___Esca_(Black_Measles)",
+        "crop": "grape",
+        "disease": "Esca (Black Measles)",
+        "treatment": "No effective chemical cure. Remove infected cordons. Apply wound sealant after pruning.",
+        "severity_base": "CRITICAL",
+    },
+    {
+        "index": 13,
+        "label": "Grape___Leaf_blight_(Isariopsis_Leaf_Spot)",
+        "crop": "grape",
+        "disease": "Leaf Blight (Isariopsis)",
+        "treatment": "Spray Copper oxychloride 50 WP @ 3 g/L. Improve canopy management.",
+        "severity_base": "MEDIUM",
+    },
+    {
+        "index": 14,
+        "label": "Grape___healthy",
+        "crop": "grape",
+        "disease": "Healthy",
+        "treatment": "No treatment needed. Maintain canopy for air circulation.",
+        "severity_base": "LOW",
+    },
+    {
+        "index": 15,
+        "label": "Orange___Haunglongbing_(Citrus_greening)",
+        "crop": "orange",
+        "disease": "Huanglongbing (Citrus Greening)",
+        "treatment": "No cure available. Remove infected trees immediately. Control Asian citrus psyllid vector with Imidacloprid @ 0.5 ml/L.",
+        "severity_base": "CRITICAL",
+    },
+    {
+        "index": 16,
+        "label": "Peach___Bacterial_spot",
+        "crop": "peach",
+        "disease": "Bacterial Spot",
+        "treatment": "Apply Copper hydroxide 77 WP @ 2 g/L. Avoid overhead irrigation. Use resistant cultivars.",
+        "severity_base": "MEDIUM",
+    },
+    {
+        "index": 17,
+        "label": "Peach___healthy",
+        "crop": "peach",
+        "disease": "Healthy",
+        "treatment": "No treatment needed. Thin fruits for better size.",
+        "severity_base": "LOW",
+    },
+    {
+        "index": 18,
+        "label": "Pepper_bell___Bacterial_spot",
+        "crop": "pepper",
+        "disease": "Bacterial Spot",
+        "treatment": "Spray Streptocycline @ 0.5 g/L + Copper oxychloride @ 3 g/L. Use disease-free seed.",
+        "severity_base": "MEDIUM",
+    },
+    {
+        "index": 19,
+        "label": "Pepper_bell___healthy",
+        "crop": "pepper",
+        "disease": "Healthy",
+        "treatment": "No treatment needed. Maintain balanced nutrition.",
+        "severity_base": "LOW",
+    },
+    {
+        "index": 20,
+        "label": "Potato___Early_blight",
+        "crop": "potato",
+        "disease": "Early Blight",
+        "treatment": "Spray Mancozeb 75 WP @ 2.5 g/L every 10 days. Maintain proper plant spacing. Avoid overhead irrigation.",
+        "severity_base": "MEDIUM",
+    },
+    {
+        "index": 21,
+        "label": "Potato___Late_blight",
+        "crop": "potato",
+        "disease": "Late Blight",
+        "treatment": "Spray Cymoxanil + Mancozeb @ 3 g/L curative. Preventive: Mancozeb @ 2.5 g/L every 7-10 days in foggy weather. Use resistant varieties like Kufri Badshah.",
+        "severity_base": "CRITICAL",
+    },
+    {
+        "index": 22,
+        "label": "Potato___healthy",
+        "crop": "potato",
+        "disease": "Healthy",
+        "treatment": "No treatment needed. Continue late blight vigilance in foggy weather.",
+        "severity_base": "LOW",
+    },
+    {
+        "index": 23,
+        "label": "Raspberry___healthy",
+        "crop": "raspberry",
+        "disease": "Healthy",
+        "treatment": "No treatment needed. Prune old canes after fruiting.",
+        "severity_base": "LOW",
+    },
+    {
+        "index": 24,
+        "label": "Rice___Brown_spot",
+        "crop": "rice",
+        "disease": "Brown Spot",
+        "treatment": "Spray Mancozeb 75 WP @ 2.5 g/L or Propiconazole 25 EC @ 1 ml/L. Apply potassium fertilizer to deficient soils.",
+        "severity_base": "MEDIUM",
+    },
+    {
+        "index": 25,
+        "label": "Rice___Leaf_blast",
+        "crop": "rice",
+        "disease": "Leaf Blast",
+        "treatment": "Spray Tricyclazole 75 WP @ 0.6 g/L or Isoprothiolane 40 EC @ 1.5 ml/L. Use resistant varieties like Pusa Basmati 1847. Balanced nitrogen.",
+        "severity_base": "HIGH",
+    },
+    {
+        "index": 26,
+        "label": "Rice___Neck_blast",
+        "crop": "rice",
+        "disease": "Neck Blast",
+        "treatment": "Spray Tricyclazole 75 WP @ 0.6 g/L at boot leaf stage preventively. This is the most destructive form — causes broken panicle and total grain loss.",
+        "severity_base": "CRITICAL",
+    },
+    {
+        "index": 27,
+        "label": "Rice___healthy",
+        "crop": "rice",
+        "disease": "Healthy",
+        "treatment": "No treatment needed. Monitor for blast during cool humid weather.",
+        "severity_base": "LOW",
+    },
+    {
+        "index": 28,
+        "label": "Soybean___healthy",
+        "crop": "soybean",
+        "disease": "Healthy",
+        "treatment": "No treatment needed. Scout for defoliators.",
+        "severity_base": "LOW",
+    },
+    {
+        "index": 29,
+        "label": "Squash___Powdery_mildew",
+        "crop": "squash",
+        "disease": "Powdery Mildew",
+        "treatment": "Spray Sulphur 80 WP @ 3 g/L or Dinocap @ 1 ml/L. Ensure proper spacing.",
+        "severity_base": "MEDIUM",
+    },
+    {
+        "index": 30,
+        "label": "Strawberry___Leaf_scorch",
+        "crop": "strawberry",
+        "disease": "Leaf Scorch",
+        "treatment": "Remove infected leaves. Spray Copper oxychloride @ 3 g/L. Avoid overhead watering.",
+        "severity_base": "MEDIUM",
+    },
+    {
+        "index": 31,
+        "label": "Strawberry___healthy",
+        "crop": "strawberry",
+        "disease": "Healthy",
+        "treatment": "No treatment needed. Mulch to prevent soil splash.",
+        "severity_base": "LOW",
+    },
+    {
+        "index": 32,
+        "label": "Tomato___Bacterial_spot",
+        "crop": "tomato",
+        "disease": "Bacterial Spot",
+        "treatment": "Spray Streptocycline @ 0.5 g/L + Copper oxychloride @ 3 g/L. Use disease-free transplants.",
+        "severity_base": "MEDIUM",
+    },
+    {
+        "index": 33,
+        "label": "Tomato___Early_blight",
+        "crop": "tomato",
+        "disease": "Early Blight",
+        "treatment": "Spray Mancozeb 75 WP @ 2.5 g/L or Chlorothalonil @ 2 g/L. Stake plants for air flow. Remove lower infected leaves.",
+        "severity_base": "MEDIUM",
+    },
+    {
+        "index": 34,
+        "label": "Tomato___Late_blight",
+        "crop": "tomato",
+        "disease": "Late Blight",
+        "treatment": "Spray Cymoxanil + Mancozeb @ 3 g/L. Destroy infected plants immediately. Avoid overhead irrigation.",
+        "severity_base": "CRITICAL",
+    },
+    {
+        "index": 35,
+        "label": "Tomato___Leaf_Mold",
+        "crop": "tomato",
+        "disease": "Leaf Mold",
+        "treatment": "Improve greenhouse ventilation. Spray Mancozeb @ 2.5 g/L. Reduce humidity.",
+        "severity_base": "MEDIUM",
+    },
+    {
+        "index": 36,
+        "label": "Tomato___Septoria_leaf_spot",
+        "crop": "tomato",
+        "disease": "Septoria Leaf Spot",
+        "treatment": "Spray Chlorothalonil @ 2 g/L or Mancozeb @ 2.5 g/L. Remove lower infected leaves. Mulch to prevent splash.",
+        "severity_base": "MEDIUM",
+    },
+    {
+        "index": 37,
+        "label": "Tomato___Spider_mites",
+        "crop": "tomato",
+        "disease": "Spider Mites (Two-spotted)",
+        "treatment": "Spray Dicofol 18.5 EC @ 2.5 ml/L or Abamectin @ 0.5 ml/L. Increase humidity. Release predatory mites (Phytoseiulus).",
+        "severity_base": "MEDIUM",
+    },
+    {
+        "index": 38,
+        "label": "Tomato___Target_Spot",
+        "crop": "tomato",
+        "disease": "Target Spot",
+        "treatment": "Spray Mancozeb @ 2.5 g/L or Azoxystrobin @ 1 ml/L. Remove plant debris after season.",
+        "severity_base": "MEDIUM",
+    },
+    {
+        "index": 39,
+        "label": "Tomato___Yellow_Leaf_Curl_Virus",
+        "crop": "tomato",
+        "disease": "Yellow Leaf Curl Virus",
+        "treatment": "No cure for infected plants — remove and destroy. Control whitefly vector with Imidacloprid @ 0.5 ml/L. Use resistant varieties. Install yellow sticky traps.",
+        "severity_base": "CRITICAL",
+    },
+    {
+        "index": 40,
+        "label": "Tomato___Mosaic_virus",
+        "crop": "tomato",
+        "disease": "Tomato Mosaic Virus",
+        "treatment": "No chemical cure. Remove infected plants. Disinfect tools with 10% bleach. Use resistant varieties. Avoid tobacco products near plants.",
+        "severity_base": "HIGH",
+    },
+    {
+        "index": 41,
+        "label": "Tomato___healthy",
+        "crop": "tomato",
+        "disease": "Healthy",
+        "treatment": "No treatment needed. Continue regular scouting for whitefly and blight.",
+        "severity_base": "LOW",
+    },
+    {
+        "index": 42,
+        "label": "Wheat___Brown_rust",
+        "crop": "wheat",
+        "disease": "Brown Rust (Leaf Rust)",
+        "treatment": "Spray Propiconazole 25 EC @ 1 ml/L or Tebuconazole 250 EC @ 1 ml/L. Use resistant varieties.",
+        "severity_base": "MEDIUM",
+    },
+    {
+        "index": 43,
+        "label": "Wheat___Yellow_rust",
+        "crop": "wheat",
+        "disease": "Yellow Rust (Stripe Rust)",
+        "treatment": "Spray Propiconazole 25 EC @ 1 ml/L immediately on detection. Repeat after 15 days. Use resistant varieties HD 3226, PBW 826.",
+        "severity_base": "HIGH",
+    },
+    {
+        "index": 44,
+        "label": "Wheat___Septoria",
+        "crop": "wheat",
+        "disease": "Septoria Leaf Blotch",
+        "treatment": "Spray Propiconazole 25 EC @ 1 ml/L or Tebuconazole @ 1 ml/L. Avoid excessive nitrogen.",
+        "severity_base": "MEDIUM",
+    },
+    {
+        "index": 45,
+        "label": "Wheat___healthy",
+        "crop": "wheat",
+        "disease": "Healthy",
+        "treatment": "No treatment needed. Monitor for rust during Jan-Feb in cool humid conditions.",
+        "severity_base": "LOW",
+    },
+    {
+        "index": 46,
+        "label": "Cotton___Bacterial_blight",
+        "crop": "cotton",
+        "disease": "Bacterial Blight (Angular Leaf Spot)",
+        "treatment": "Spray Streptocycline @ 0.5 g/L + Copper oxychloride @ 3 g/L. Use acid-delinted and treated seed.",
+        "severity_base": "MEDIUM",
+    },
+    {
+        "index": 47,
+        "label": "Cotton___Leaf_curl_virus",
+        "crop": "cotton",
+        "disease": "Cotton Leaf Curl Virus",
+        "treatment": "No cure. Uproot and destroy infected plants. Control whitefly vector with Diafenthiuron 50 WP @ 1 g/L. Use tolerant varieties.",
+        "severity_base": "CRITICAL",
+    },
+]
+
+# Build lookup indices for fast access
+_PLANTVILLAGE_BY_CROP: dict[str, list[int]] = defaultdict(list)
+for _pv_cls in PLANTVILLAGE_CLASSES:
+    _PLANTVILLAGE_BY_CROP[_pv_cls["crop"]].append(_pv_cls["index"])
+
+_PLANTVILLAGE_CROP_NAMES: list[str] = sorted(
+    set(c["crop"] for c in PLANTVILLAGE_CLASSES)
+)
+
+# Simulated AgMarkNet mandi data — base prices (Rs/quintal) by crop and region
+_AGMARKNET_BASE_PRICES: dict[str, dict[str, float]] = {
+    "wheat": {
+        "north_india": 2425.0,
+        "central_india": 2380.0,
+        "south_india": 2500.0,
+        "east_india": 2350.0,
+    },
+    "rice": {
+        "north_india": 2300.0,
+        "central_india": 2250.0,
+        "south_india": 2100.0,
+        "east_india": 2200.0,
+    },
+    "maize": {
+        "north_india": 2090.0,
+        "central_india": 2050.0,
+        "south_india": 2150.0,
+        "east_india": 1980.0,
+    },
+    "potato": {
+        "north_india": 1200.0,
+        "central_india": 1100.0,
+        "south_india": 1350.0,
+        "east_india": 1050.0,
+    },
+    "tomato": {
+        "north_india": 2500.0,
+        "central_india": 2200.0,
+        "south_india": 1800.0,
+        "east_india": 2000.0,
+    },
+    "cotton": {
+        "north_india": 7521.0,
+        "central_india": 7200.0,
+        "south_india": 7400.0,
+        "east_india": 7100.0,
+    },
+    "sugarcane": {
+        "north_india": 380.0,
+        "central_india": 340.0,
+        "south_india": 350.0,
+        "east_india": 330.0,
+    },
+    "mustard": {
+        "north_india": 5950.0,
+        "central_india": 5800.0,
+        "south_india": 6100.0,
+        "east_india": 5700.0,
+    },
+    "apple": {
+        "north_india": 4500.0,
+        "central_india": 4800.0,
+        "south_india": 5200.0,
+        "east_india": 4600.0,
+    },
+    "grape": {
+        "north_india": 3500.0,
+        "central_india": 3200.0,
+        "south_india": 2800.0,
+        "east_india": 3400.0,
+    },
+    "soybean": {
+        "north_india": 4600.0,
+        "central_india": 4300.0,
+        "south_india": 4500.0,
+        "east_india": 4200.0,
+    },
+    "orange": {
+        "north_india": 3000.0,
+        "central_india": 2800.0,
+        "south_india": 2600.0,
+        "east_india": 2900.0,
+    },
+}
+
+# Simulated weather patterns by region
+_WEATHER_PATTERNS: dict[str, dict[str, Any]] = {
+    "north_india": {
+        "temp_range": (5, 45),
+        "humidity_range": (30, 90),
+        "rain_prob_base": 0.3,
+    },
+    "central_india": {
+        "temp_range": (10, 46),
+        "humidity_range": (25, 85),
+        "rain_prob_base": 0.25,
+    },
+    "south_india": {
+        "temp_range": (18, 40),
+        "humidity_range": (50, 95),
+        "rain_prob_base": 0.4,
+    },
+    "east_india": {
+        "temp_range": (8, 42),
+        "humidity_range": (45, 95),
+        "rain_prob_base": 0.45,
+    },
+}
+
+# ============================================================
+# Multi-Agent Pipeline: Pydantic Models
+# ============================================================
+
+
+class VisionRequest(BaseModel):
+    """Request for the Vision Agent — crop disease classification."""
+
+    image_base64: str | None = Field(
+        None, description="Base64 encoded crop leaf image (optional for simulation)"
+    )
+    crop_type: str = Field(
+        ..., description="Crop type, e.g. 'tomato', 'potato', 'wheat'"
+    )
+    symptoms: str | None = Field(
+        None,
+        description="Text description of visible symptoms for enhanced classification",
+    )
+
+
+class DiseaseClassification(BaseModel):
+    class_index: int
+    label: str
+    disease_name: str
+    confidence: float
+    crop: str
+
+
+class VisionResponse(BaseModel):
+    status: str
+    model_used: str
+    crop_type: str
+    top_prediction: DiseaseClassification
+    top_5_predictions: list[DiseaseClassification]
+    treatment: str
+    all_38_classes_evaluated: bool
+    timestamp: str
+
+
+class VerifyRequest(BaseModel):
+    """Request for the Verifier Agent — risk/severity assessment."""
+
+    disease_name: str = Field(
+        ..., description="Diagnosed disease name from Vision Agent"
+    )
+    confidence: float = Field(
+        ..., ge=0.0, le=1.0, description="Confidence score from Vision Agent"
+    )
+    crop_type: str = Field(..., description="Crop type")
+    spread_percentage: float = Field(
+        0.1, ge=0.0, le=1.0, description="Estimated percentage of field affected (0-1)"
+    )
+    days_since_onset: int = Field(
+        3, ge=0, description="Approximate days since symptoms first noticed"
+    )
+
+
+class VerifyResponse(BaseModel):
+    disease_name: str
+    severity: str  # LOW / MEDIUM / HIGH / CRITICAL
+    risk_score: float  # 0-100
+    action: str  # MONITOR / TREAT / ESCALATE
+    reasoning: list[str]
+    recommended_actions: list[str]
+    escalation_contact: str | None
+    timestamp: str
+
+
+class WeatherForecast(BaseModel):
+    date: str
+    temp_max_c: float
+    temp_min_c: float
+    humidity_pct: float
+    rain_probability: float
+    rain_mm: float
+    wind_kph: float
+    condition: str
+
+
+class WeatherResponse(BaseModel):
+    region: str
+    lat: float | None
+    lon: float | None
+    crop_type: str
+    forecast_days: int
+    forecasts: list[WeatherForecast]
+    irrigation_advice: str
+    irrigation_reasoning: str
+    timestamp: str
+
+
+class MandiPrice(BaseModel):
+    mandi_name: str
+    district: str
+    state: str
+    price_per_quintal: float
+    arrival_tonnes: float
+    price_trend: str  # UP / DOWN / STABLE
+    last_updated: str
+
+
+class MarketResponse(BaseModel):
+    crop_type: str
+    region: str
+    msp_reference: float | None
+    mandi_prices: list[MandiPrice]
+    best_selling_time: str
+    price_recommendation: str
+    timestamp: str
+
+
+class MemoryLogRequest(BaseModel):
+    """Request to log a farmer interaction."""
+
+    farmer_id: str = Field(..., description="Unique farmer identifier")
+    interaction_type: str = Field(
+        ...,
+        description="Type: disease_diagnosis, weather_check, market_query, general_chat",
+    )
+    crop_type: str | None = None
+    disease_detected: str | None = None
+    severity: str | None = None
+    location: str | None = None
+    notes: str | None = None
+
+
+class FarmerInteraction(BaseModel):
+    interaction_id: str
+    timestamp: str
+    interaction_type: str
+    crop_type: str | None
+    disease_detected: str | None
+    severity: str | None
+    location: str | None
+    notes: str | None
+
+
+class PatternAnalysis(BaseModel):
+    total_interactions: int
+    most_common_crop: str | None
+    most_common_disease: str | None
+    disease_frequency: dict[str, int]
+    crop_frequency: dict[str, int]
+    recurring_issues: list[str]
+    risk_profile: str  # LOW_RISK / MODERATE_RISK / HIGH_RISK
+    recommendation: str
+
+
+class MemoryLogResponse(BaseModel):
+    status: str
+    farmer_id: str
+    interaction_id: str
+    total_interactions: int
+    timestamp: str
+
+
+class MemoryGetResponse(BaseModel):
+    farmer_id: str
+    total_interactions: int
+    interactions: list[FarmerInteraction]
+    pattern_analysis: PatternAnalysis
+    timestamp: str
+
+
+class LLMRequest(BaseModel):
+    """Request for the LLM Agent — summary generation."""
+
+    disease_info: dict[str, Any] | None = Field(
+        None, description="Disease diagnosis context"
+    )
+    weather_info: dict[str, Any] | None = Field(
+        None, description="Weather/irrigation context"
+    )
+    market_info: dict[str, Any] | None = Field(None, description="Market price context")
+    farmer_query: str | None = Field(None, description="Farmer's original question")
+    language: str = Field(
+        "en", description="Target language: en, hi, pa, mr, ta, te, bn"
+    )
+    format_style: str = Field(
+        "whatsapp", description="Output format: whatsapp, detailed, sms"
+    )
+
+
+class LLMResponse(BaseModel):
+    summary: str
+    language: str
+    format_style: str
+    model_used: str
+    follow_up_suggestions: list[str]
+    timestamp: str
+
+
+class PipelineRequest(BaseModel):
+    """Request for the full multi-agent pipeline."""
+
+    farmer_id: str = Field(..., description="Farmer identifier for memory logging")
+    crop_type: str = Field(..., description="Crop type, e.g. 'tomato', 'wheat'")
+    image_base64: str | None = Field(None, description="Base64 crop photo (optional)")
+    symptoms: str | None = Field(None, description="Visible symptom description")
+    region: str = Field(
+        "north_india",
+        description="Region: north_india, central_india, south_india, east_india",
+    )
+    lat: float | None = Field(None, description="Latitude for weather")
+    lon: float | None = Field(None, description="Longitude for weather")
+    language: str = Field("en", description="Summary language")
+
+
+class PipelineAgentResult(BaseModel):
+    agent: str
+    status: str
+    data: dict[str, Any]
+
+
+class PipelineResponse(BaseModel):
+    farmer_id: str
+    crop_type: str
+    region: str
+    pipeline_id: str
+    agents_executed: list[str]
+    vision_result: dict[str, Any]
+    verification_result: dict[str, Any]
+    weather_result: dict[str, Any]
+    market_result: dict[str, Any]
+    memory_result: dict[str, Any]
+    llm_summary: dict[str, Any]
+    full_summary: str
+    timestamp: str
+
+
+# ============================================================
+# Multi-Agent Pipeline: In-Memory Stores
+# ============================================================
+
+# Memory Agent store: farmer_id -> list of interactions
+_farmer_memory: dict[str, list[dict[str, Any]]] = {}
+
+# ============================================================
+# Multi-Agent Pipeline: Internal Agent Functions
+# ============================================================
+
+
+def _agent_vision(
+    crop_type: str, symptoms: str | None = None, image_base64: str | None = None
+) -> dict[str, Any]:
+    """
+    Vision Agent: Simulates MobileNetV2/ResNet classification on PlantVillage 38 classes.
+
+    Uses numpy to produce realistic probability distributions. When symptoms or
+    image_base64 are provided, they seed the RNG for deterministic-but-varied results.
+    """
+    crop_lower = crop_type.lower().strip()
+    crop_lower = _CROP_ALIASES.get(crop_lower, crop_lower)
+
+    # Build a deterministic seed from inputs for reproducibility
+    seed_str = f"{crop_lower}:{symptoms or ''}:{(image_base64 or '')[:64]}"
+    seed_val = int(hashlib.md5(seed_str.encode()).hexdigest()[:8], 16)
+    rng = np.random.RandomState(seed_val)
+
+    # Get class indices relevant to this crop
+    crop_indices = _PLANTVILLAGE_BY_CROP.get(crop_lower, [])
+
+    # If crop not in PlantVillage, find closest or use all
+    if not crop_indices:
+        # Map to closest PlantVillage crop or use all classes
+        crop_indices = list(range(len(PLANTVILLAGE_CLASSES)))
+
+    # Generate raw logits for ALL 48 classes (38 original + 10 extended)
+    num_classes = len(PLANTVILLAGE_CLASSES)
+    raw_logits = rng.normal(loc=0.0, scale=1.0, size=num_classes)
+
+    # Boost logits for classes matching the input crop
+    for idx in crop_indices:
+        raw_logits[idx] += 3.0  # strong prior for matching crop
+
+    # If symptoms hint at a specific disease, boost further
+    if symptoms:
+        symptoms_lower = symptoms.lower()
+        for i, cls in enumerate(PLANTVILLAGE_CLASSES):
+            disease_lower = cls["disease"].lower()
+            label_lower = cls["label"].lower()
+            # Check for keyword overlap between symptoms and disease name
+            disease_words = set(disease_lower.replace("(", "").replace(")", "").split())
+            symptom_words = set(symptoms_lower.split())
+            overlap = disease_words & symptom_words
+            if overlap:
+                raw_logits[i] += 2.0 * len(overlap)
+            # Check for common symptom-disease associations
+            symptom_disease_map = {
+                "yellow": ["rust", "curl", "mosaic", "greening"],
+                "brown": ["blight", "rot", "spot", "rust"],
+                "black": ["rot", "spot", "measles"],
+                "white": ["mildew", "mold"],
+                "spots": ["spot", "blight", "scorch"],
+                "wilting": ["wilt", "blight", "virus"],
+                "curling": ["curl", "virus"],
+                "powdery": ["mildew"],
+                "stripe": ["rust", "streak"],
+                "lesion": ["spot", "blight", "blast"],
+                "rot": ["rot"],
+                "mold": ["mold", "mildew"],
+            }
+            for symptom_kw, disease_kws in symptom_disease_map.items():
+                if symptom_kw in symptoms_lower:
+                    for dkw in disease_kws:
+                        if dkw in disease_lower or dkw in label_lower:
+                            raw_logits[i] += 1.5
+
+    # Healthy classes get a slight penalty if symptoms are described
+    if symptoms and symptoms.strip():
+        for i, cls in enumerate(PLANTVILLAGE_CLASSES):
+            if cls["disease"] == "Healthy":
+                raw_logits[i] -= 2.0
+    else:
+        # No symptoms → boost healthy classes
+        for i, cls in enumerate(PLANTVILLAGE_CLASSES):
+            if cls["disease"] == "Healthy" and cls["crop"] == crop_lower:
+                raw_logits[i] += 2.5
+
+    # Apply softmax to get probabilities
+    logits_shifted = raw_logits - np.max(raw_logits)  # numerical stability
+    exp_logits = np.exp(logits_shifted)
+    probabilities = exp_logits / np.sum(exp_logits)
+
+    # Sort by probability descending
+    sorted_indices = np.argsort(probabilities)[::-1]
+
+    top_5 = []
+    for rank, idx in enumerate(sorted_indices[:5]):
+        cls_info = PLANTVILLAGE_CLASSES[idx]
+        top_5.append(
+            DiseaseClassification(
+                class_index=cls_info["index"],
+                label=cls_info["label"],
+                disease_name=cls_info["disease"],
+                confidence=round(float(probabilities[idx]), 4),
+                crop=cls_info["crop"],
+            )
+        )
+
+    top_pred = top_5[0]
+    top_cls_info = PLANTVILLAGE_CLASSES[top_pred.class_index]
+
+    return {
+        "status": "success",
+        "model_used": "MobileNetV2-PlantVillage-Simulated (54K images, 38+ classes)",
+        "crop_type": crop_lower,
+        "top_prediction": top_pred.model_dump(),
+        "top_5_predictions": [p.model_dump() for p in top_5],
+        "treatment": top_cls_info["treatment"],
+        "all_38_classes_evaluated": True,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _agent_verify(
+    disease_name: str,
+    confidence: float,
+    crop_type: str,
+    spread_percentage: float = 0.1,
+    days_since_onset: int = 3,
+) -> dict[str, Any]:
+    """
+    Verifier Agent: Evaluates risk/severity and decides action.
+    Uses a multi-factor scoring system.
+    """
+    # Find the disease in PlantVillage classes
+    base_severity = "MEDIUM"
+    for cls in PLANTVILLAGE_CLASSES:
+        if (
+            cls["disease"].lower() == disease_name.lower()
+            or cls["label"].lower() == disease_name.lower()
+        ):
+            base_severity = cls["severity_base"]
+            break
+
+    # Also check partial matches
+    if base_severity == "MEDIUM":
+        for cls in PLANTVILLAGE_CLASSES:
+            if disease_name.lower() in cls["disease"].lower():
+                base_severity = cls["severity_base"]
+                break
+
+    # Multi-factor risk score (0-100)
+    severity_scores = {"LOW": 10, "MEDIUM": 40, "HIGH": 70, "CRITICAL": 90}
+    base_score = severity_scores.get(base_severity, 40)
+
+    # Factor 1: Confidence adjustment (-10 to +10)
+    confidence_adj = (confidence - 0.5) * 20  # high confidence → higher risk score
+
+    # Factor 2: Spread percentage (0-20)
+    spread_adj = spread_percentage * 20
+
+    # Factor 3: Days since onset (0-15)
+    if days_since_onset <= 1:
+        onset_adj = 0
+    elif days_since_onset <= 3:
+        onset_adj = 5
+    elif days_since_onset <= 7:
+        onset_adj = 10
+    else:
+        onset_adj = 15
+
+    # Factor 4: Is disease known to be economically devastating?
+    devastating_diseases = [
+        "late blight",
+        "neck blast",
+        "citrus greening",
+        "huanglongbing",
+        "leaf curl virus",
+        "yellow leaf curl",
+        "esca",
+        "black measles",
+    ]
+    devastation_adj = 0
+    for dd in devastating_diseases:
+        if dd in disease_name.lower():
+            devastation_adj = 10
+            break
+
+    risk_score = min(
+        100,
+        max(0, base_score + confidence_adj + spread_adj + onset_adj + devastation_adj),
+    )
+
+    # Determine final severity from risk score
+    if risk_score < 25:
+        final_severity = "LOW"
+    elif risk_score < 50:
+        final_severity = "MEDIUM"
+    elif risk_score < 75:
+        final_severity = "HIGH"
+    else:
+        final_severity = "CRITICAL"
+
+    # Determine action
+    action_map = {
+        "LOW": "MONITOR",
+        "MEDIUM": "TREAT",
+        "HIGH": "TREAT",
+        "CRITICAL": "ESCALATE",
+    }
+    action = action_map[final_severity]
+
+    # Build reasoning
+    reasoning = []
+    if disease_name.lower() == "healthy" or "healthy" in disease_name.lower():
+        final_severity = "LOW"
+        risk_score = 5.0
+        action = "MONITOR"
+        reasoning = [
+            "Plant appears healthy",
+            "No disease detected",
+            "Continue regular monitoring",
+        ]
+    else:
+        reasoning.append(f"Base severity for '{disease_name}': {base_severity}")
+        reasoning.append(
+            f"Classification confidence: {confidence:.1%} (adjustment: {confidence_adj:+.1f})"
+        )
+        reasoning.append(
+            f"Estimated field spread: {spread_percentage:.0%} (adjustment: {spread_adj:+.1f})"
+        )
+        reasoning.append(
+            f"Days since onset: {days_since_onset} (adjustment: {onset_adj:+.1f})"
+        )
+        if devastation_adj > 0:
+            reasoning.append(
+                f"Known economically devastating disease (+{devastation_adj})"
+            )
+        reasoning.append(f"Final risk score: {risk_score:.1f}/100 → {final_severity}")
+
+    # Build recommended actions
+    recommended_actions = []
+    if action == "MONITOR":
+        recommended_actions = [
+            "Continue scouting every 3-5 days",
+            "Take photos for comparison over time",
+            "Maintain field hygiene and balanced nutrition",
+        ]
+    elif action == "TREAT":
+        # Find treatment from PlantVillage
+        treatment = "Apply recommended fungicide/pesticide as per diagnosis"
+        for cls in PLANTVILLAGE_CLASSES:
+            if cls["disease"].lower() == disease_name.lower():
+                treatment = cls["treatment"]
+                break
+        recommended_actions = [
+            treatment,
+            "Apply treatment within 24-48 hours",
+            "Scout again after 7 days to check effectiveness",
+            "If spread continues, escalate to Krishi Vigyan Kendra",
+        ]
+    else:  # ESCALATE
+        recommended_actions = [
+            "Contact Krishi Vigyan Kendra (KVK) IMMEDIATELY",
+            "Call agriculture helpline 1551 for expert guidance",
+            "Isolate affected area — do not move plant material",
+            "Take multiple photos from different angles for expert review",
+            "Consider emergency fungicide/pesticide application while awaiting expert advice",
+        ]
+
+    escalation_contact = None
+    if action == "ESCALATE":
+        escalation_contact = (
+            "Agriculture Helpline: 1551 | Nearest KVK | District Agriculture Officer"
+        )
+
+    return {
+        "disease_name": disease_name,
+        "severity": final_severity,
+        "risk_score": round(risk_score, 1),
+        "action": action,
+        "reasoning": reasoning,
+        "recommended_actions": recommended_actions,
+        "escalation_contact": escalation_contact,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _agent_weather(
+    region: str, crop_type: str, lat: float | None = None, lon: float | None = None
+) -> dict[str, Any]:
+    """
+    Weather Agent: Simulates short-term forecast and provides irrigation advice.
+    Uses numpy for realistic weather simulation based on region and season.
+    """
+    region_lower = region.lower().strip()
+    if region_lower not in _WEATHER_PATTERNS:
+        region_lower = "north_india"
+
+    pattern = _WEATHER_PATTERNS[region_lower]
+    now = datetime.now(timezone.utc)
+
+    # Deterministic seed from date + region for consistent daily forecasts
+    seed_str = f"{now.strftime('%Y-%m-%d')}:{region_lower}:{crop_type}"
+    seed_val = int(hashlib.md5(seed_str.encode()).hexdigest()[:8], 16)
+    rng = np.random.RandomState(seed_val)
+
+    # Season-based adjustments
+    month = now.month
+    if month in (6, 7, 8, 9):  # monsoon
+        rain_mult = 2.5
+        temp_adj = -2
+    elif month in (12, 1, 2):  # winter
+        rain_mult = 0.3
+        temp_adj = -8
+    elif month in (3, 4, 5):  # summer
+        rain_mult = 0.5
+        temp_adj = 5
+    else:  # post-monsoon
+        rain_mult = 0.8
+        temp_adj = 0
+
+    forecasts = []
+    rain_tomorrow = False
+
+    for day_offset in range(5):
+        day_seed = rng.randint(0, 100000)
+        day_rng = np.random.RandomState(day_seed)
+
+        temp_min = pattern["temp_range"][0] + temp_adj + day_rng.normal(0, 3)
+        temp_max = pattern["temp_range"][1] + temp_adj + day_rng.normal(0, 3)
+        temp_min = round(max(temp_min, -5), 1)
+        temp_max = round(min(max(temp_max, temp_min + 3), 50), 1)
+
+        humidity = round(
+            float(
+                np.clip(
+                    day_rng.normal(
+                        (pattern["humidity_range"][0] + pattern["humidity_range"][1])
+                        / 2,
+                        15,
+                    ),
+                    pattern["humidity_range"][0],
+                    pattern["humidity_range"][1],
+                )
+            ),
+            1,
+        )
+
+        rain_prob = round(
+            float(
+                np.clip(
+                    pattern["rain_prob_base"] * rain_mult + day_rng.normal(0, 0.15),
+                    0.0,
+                    0.95,
+                )
+            ),
+            2,
+        )
+
+        rain_mm = 0.0
+        if rain_prob > 0.4:
+            rain_mm = round(float(day_rng.exponential(scale=rain_prob * 20)), 1)
+        elif rain_prob > 0.2:
+            rain_mm = round(float(day_rng.exponential(scale=rain_prob * 5)), 1)
+
+        wind_kph = round(float(np.clip(day_rng.normal(12, 8), 0, 60)), 1)
+
+        # Determine condition string
+        if rain_mm > 20:
+            condition = "Heavy Rain"
+        elif rain_mm > 5:
+            condition = "Moderate Rain"
+        elif rain_mm > 0.5:
+            condition = "Light Rain"
+        elif humidity > 80:
+            condition = "Cloudy/Overcast"
+        elif temp_max > 40:
+            condition = "Hot & Sunny"
+        elif temp_min < 5:
+            condition = "Cold/Frost Risk"
+        else:
+            condition = "Clear/Partly Cloudy"
+
+        forecast_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        forecast_date = forecast_date + timedelta(days=day_offset)
+
+        if day_offset == 1 and rain_prob > 0.35:
+            rain_tomorrow = True
+
+        forecasts.append(
+            WeatherForecast(
+                date=forecast_date.strftime("%Y-%m-%d"),
+                temp_max_c=temp_max,
+                temp_min_c=temp_min,
+                humidity_pct=humidity,
+                rain_probability=rain_prob,
+                rain_mm=rain_mm,
+                wind_kph=wind_kph,
+                condition=condition,
+            )
+        )
+
+    # Irrigation advice logic
+    crop_lower = _CROP_ALIASES.get(crop_type.lower(), crop_type.lower())
+    today_rain = forecasts[0].rain_mm if forecasts else 0
+    today_rain_prob = forecasts[0].rain_probability if forecasts else 0
+
+    if rain_tomorrow and today_rain < 5:
+        irrigation_advice = "Skip irrigation — Rain expected tomorrow"
+        irrigation_reasoning = (
+            f"Tomorrow's rain probability is {forecasts[1].rain_probability:.0%} with "
+            f"expected {forecasts[1].rain_mm:.1f} mm. Save water and irrigate only if "
+            f"rain does not materialize."
+        )
+    elif today_rain > 10:
+        irrigation_advice = "Skip irrigation — Sufficient rain today"
+        irrigation_reasoning = (
+            f"Today received {today_rain:.1f} mm of rain which is adequate. "
+            f"Check soil moisture tomorrow before deciding."
+        )
+    elif today_rain_prob > 0.6:
+        irrigation_advice = "Skip irrigation — High chance of rain today"
+        irrigation_reasoning = (
+            f"Rain probability today is {today_rain_prob:.0%}. Wait until evening "
+            f"and irrigate only if rain does not occur."
+        )
+    elif forecasts[0].temp_max_c > 40:
+        irrigation_advice = "Irrigate today — Hot conditions detected"
+        irrigation_reasoning = (
+            f"Temperature expected to reach {forecasts[0].temp_max_c:.1f}°C. "
+            f"Crops face heat stress. Irrigate preferably in early morning or late evening."
+        )
+    elif forecasts[0].condition == "Cold/Frost Risk":
+        irrigation_advice = "Light irrigation recommended — Frost protection"
+        irrigation_reasoning = (
+            f"Minimum temperature {forecasts[0].temp_min_c:.1f}°C indicates frost risk. "
+            f"Light irrigation in the evening can protect crops from frost damage."
+        )
+    else:
+        irrigation_advice = "Irrigate today if scheduled"
+        irrigation_reasoning = (
+            f"No significant rain expected in next 48 hours. "
+            f"Follow your crop's irrigation schedule. "
+            f"Current conditions: {forecasts[0].condition}, {forecasts[0].humidity_pct:.0f}% humidity."
+        )
+
+    return {
+        "region": region_lower,
+        "lat": lat,
+        "lon": lon,
+        "crop_type": crop_lower,
+        "forecast_days": 5,
+        "forecasts": [f.model_dump() for f in forecasts],
+        "irrigation_advice": irrigation_advice,
+        "irrigation_reasoning": irrigation_reasoning,
+        "timestamp": now.isoformat(),
+    }
+
+
+def _agent_market(crop_type: str, region: str) -> dict[str, Any]:
+    """
+    Market Agent: Simulates AgMarkNet mandi data and recommends best selling time.
+    Uses numpy for realistic price variation across mandis.
+    """
+    crop_lower = _CROP_ALIASES.get(crop_type.lower(), crop_type.lower())
+    region_lower = region.lower().strip()
+    now = datetime.now(timezone.utc)
+
+    # Get base price
+    crop_prices = _AGMARKNET_BASE_PRICES.get(crop_lower, {})
+    base_price = crop_prices.get(region_lower, crop_prices.get("north_india", 2000.0))
+
+    # Deterministic seed for consistent daily prices
+    seed_str = f"{now.strftime('%Y-%m-%d')}:{crop_lower}:{region_lower}"
+    seed_val = int(hashlib.md5(seed_str.encode()).hexdigest()[:8], 16)
+    rng = np.random.RandomState(seed_val)
+
+    # MSP reference
+    msp_data = FARMING_KNOWLEDGE.get("market_info", {}).get(crop_lower, {})
+    msp_ref = None
+    for key in ("msp_2025_26", "frp_2025_26"):
+        val = msp_data.get(key, "")
+        if val:
+            # Extract numeric value from string like "Rs 2,425 per quintal"
+            nums = re.findall(r"[\d,]+", val.replace(",", ""))
+            if nums:
+                try:
+                    msp_ref = float(nums[0].replace(",", ""))
+                except ValueError:
+                    pass
+            break
+
+    # Simulated mandi names per region
+    mandi_names_by_region: dict[str, list[dict[str, str]]] = {
+        "north_india": [
+            {"name": "Azadpur Mandi", "district": "Delhi", "state": "Delhi"},
+            {
+                "name": "Ludhiana Grain Market",
+                "district": "Ludhiana",
+                "state": "Punjab",
+            },
+            {"name": "Karnal Mandi", "district": "Karnal", "state": "Haryana"},
+            {"name": "Hapur Mandi", "district": "Hapur", "state": "Uttar Pradesh"},
+            {"name": "Jaipur Mandi", "district": "Jaipur", "state": "Rajasthan"},
+        ],
+        "central_india": [
+            {"name": "Indore Mandi", "district": "Indore", "state": "Madhya Pradesh"},
+            {"name": "Nagpur APMC", "district": "Nagpur", "state": "Maharashtra"},
+            {"name": "Bhopal Mandi", "district": "Bhopal", "state": "Madhya Pradesh"},
+            {"name": "Raipur Mandi", "district": "Raipur", "state": "Chhattisgarh"},
+        ],
+        "south_india": [
+            {"name": "Koyambedu Market", "district": "Chennai", "state": "Tamil Nadu"},
+            {"name": "Vashi APMC", "district": "Navi Mumbai", "state": "Maharashtra"},
+            {
+                "name": "Yeshwanthpur APMC",
+                "district": "Bengaluru",
+                "state": "Karnataka",
+            },
+            {
+                "name": "Madanapalle Market",
+                "district": "Annamayya",
+                "state": "Andhra Pradesh",
+            },
+        ],
+        "east_india": [
+            {"name": "Burdwan Mandi", "district": "Burdwan", "state": "West Bengal"},
+            {"name": "Patna Mandi", "district": "Patna", "state": "Bihar"},
+            {"name": "Cuttack Mandi", "district": "Cuttack", "state": "Odisha"},
+            {"name": "Ranchi Market", "district": "Ranchi", "state": "Jharkhand"},
+        ],
+    }
+
+    mandis_info = mandi_names_by_region.get(
+        region_lower, mandi_names_by_region["north_india"]
+    )
+
+    mandi_prices = []
+    best_price = 0.0
+    best_mandi = ""
+
+    for mandi_info in mandis_info:
+        # Each mandi has its own price variation
+        price_variation = rng.normal(0, base_price * 0.08)  # ~8% std dev
+        price = round(max(base_price * 0.7, base_price + price_variation), 2)
+
+        arrival = round(float(rng.exponential(scale=50) + 10), 1)
+
+        trend_roll = rng.random()
+        if trend_roll < 0.35:
+            trend = "UP"
+        elif trend_roll < 0.65:
+            trend = "STABLE"
+        else:
+            trend = "DOWN"
+
+        if price > best_price:
+            best_price = price
+            best_mandi = mandi_info["name"]
+
+        mandi_prices.append(
+            MandiPrice(
+                mandi_name=mandi_info["name"],
+                district=mandi_info["district"],
+                state=mandi_info["state"],
+                price_per_quintal=price,
+                arrival_tonnes=arrival,
+                price_trend=trend,
+                last_updated=now.strftime("%Y-%m-%d"),
+            )
+        )
+
+    # Sort by price descending
+    mandi_prices.sort(key=lambda x: x.price_per_quintal, reverse=True)
+
+    # Price recommendation
+    up_count = sum(1 for m in mandi_prices if m.price_trend == "UP")
+    down_count = sum(1 for m in mandi_prices if m.price_trend == "DOWN")
+
+    if up_count > down_count:
+        best_selling_time = "Wait 3-5 days — prices are trending upward"
+        price_recommendation = (
+            f"Prices trending UP in {up_count}/{len(mandi_prices)} mandis. "
+            f"Consider holding stock for better returns. Best current price: Rs {best_price:.0f}/qtl at {best_mandi}."
+        )
+    elif down_count > up_count:
+        best_selling_time = "Sell now — prices are trending downward"
+        price_recommendation = (
+            f"Prices trending DOWN in {down_count}/{len(mandi_prices)} mandis. "
+            f"Sell at the earliest to avoid losses. Best current price: Rs {best_price:.0f}/qtl at {best_mandi}."
+        )
+    else:
+        best_selling_time = "Prices stable — sell at your convenience"
+        price_recommendation = (
+            f"Prices are relatively STABLE. "
+            f"Best current price: Rs {best_price:.0f}/qtl at {best_mandi}. "
+            f"Compare with MSP if available and sell where you get better return."
+        )
+
+    if msp_ref and best_price < msp_ref:
+        price_recommendation += (
+            f" Note: MSP is Rs {msp_ref:.0f}/qtl which is higher than current best market price. "
+            f"Register for government procurement to sell at MSP."
+        )
+
+    return {
+        "crop_type": crop_lower,
+        "region": region_lower,
+        "msp_reference": msp_ref,
+        "mandi_prices": [m.model_dump() for m in mandi_prices],
+        "best_selling_time": best_selling_time,
+        "price_recommendation": price_recommendation,
+        "timestamp": now.isoformat(),
+    }
+
+
+def _agent_memory_log(
+    farmer_id: str,
+    interaction_type: str,
+    crop_type: str | None = None,
+    disease_detected: str | None = None,
+    severity: str | None = None,
+    location: str | None = None,
+    notes: str | None = None,
+) -> dict[str, Any]:
+    """
+    Memory Agent (Log): Logs a farmer interaction to the in-memory store.
+    """
+    interaction_id = f"int-{uuid.uuid4().hex[:12]}"
+    now = datetime.now(timezone.utc)
+
+    interaction = {
+        "interaction_id": interaction_id,
+        "timestamp": now.isoformat(),
+        "interaction_type": interaction_type,
+        "crop_type": crop_type,
+        "disease_detected": disease_detected,
+        "severity": severity,
+        "location": location,
+        "notes": notes,
+    }
+
+    if farmer_id not in _farmer_memory:
+        _farmer_memory[farmer_id] = []
+
+    _farmer_memory[farmer_id].append(interaction)
+
+    return {
+        "status": "logged",
+        "farmer_id": farmer_id,
+        "interaction_id": interaction_id,
+        "total_interactions": len(_farmer_memory[farmer_id]),
+        "timestamp": now.isoformat(),
+    }
+
+
+def _agent_memory_get(farmer_id: str) -> dict[str, Any]:
+    """
+    Memory Agent (Get): Retrieves farmer history and performs pattern analysis.
+    """
+    now = datetime.now(timezone.utc)
+    interactions = _farmer_memory.get(farmer_id, [])
+
+    # Pattern analysis
+    disease_freq: dict[str, int] = defaultdict(int)
+    crop_freq: dict[str, int] = defaultdict(int)
+    severity_counts: dict[str, int] = defaultdict(int)
+
+    for inter in interactions:
+        if inter.get("disease_detected"):
+            disease_freq[inter["disease_detected"]] += 1
+        if inter.get("crop_type"):
+            crop_freq[inter["crop_type"]] += 1
+        if inter.get("severity"):
+            severity_counts[inter["severity"]] += 1
+
+    most_common_crop = max(crop_freq, key=crop_freq.get) if crop_freq else None  # type: ignore[arg-type]
+    most_common_disease = (
+        max(disease_freq, key=disease_freq.get) if disease_freq else None
+    )  # type: ignore[arg-type]
+
+    # Detect recurring issues
+    recurring_issues = []
+    for disease, count in disease_freq.items():
+        if count >= 2:
+            recurring_issues.append(
+                f"'{disease}' detected {count} times — possible recurring/endemic issue"
+            )
+
+    for crop, count in crop_freq.items():
+        if count >= 3 and crop in disease_freq:
+            recurring_issues.append(
+                f"Frequent disease issues with '{crop}' crop — consider resistant varieties or crop rotation"
+            )
+
+    # Risk profile
+    critical_count = severity_counts.get("CRITICAL", 0)
+    high_count = severity_counts.get("HIGH", 0)
+    if critical_count >= 2 or (critical_count >= 1 and high_count >= 2):
+        risk_profile = "HIGH_RISK"
+        recommendation = (
+            "Your farm has experienced multiple severe disease incidents. "
+            "Strongly recommend: (1) Soil health testing, (2) Crop rotation, "
+            "(3) Resistant variety adoption, (4) Regular KVK consultation."
+        )
+    elif high_count >= 2 or len(recurring_issues) >= 2:
+        risk_profile = "MODERATE_RISK"
+        recommendation = (
+            "Some recurring disease patterns detected. "
+            "Recommend: (1) Preventive fungicide schedule, (2) Improved field hygiene, "
+            "(3) Consider switching to resistant varieties."
+        )
+    else:
+        risk_profile = "LOW_RISK"
+        recommendation = (
+            "Farm health appears manageable. Continue regular scouting "
+            "and maintain balanced fertilization for best disease resistance."
+        )
+
+    pattern_analysis = {
+        "total_interactions": len(interactions),
+        "most_common_crop": most_common_crop,
+        "most_common_disease": most_common_disease,
+        "disease_frequency": dict(disease_freq),
+        "crop_frequency": dict(crop_freq),
+        "recurring_issues": recurring_issues,
+        "risk_profile": risk_profile,
+        "recommendation": recommendation,
+    }
+
+    return {
+        "farmer_id": farmer_id,
+        "total_interactions": len(interactions),
+        "interactions": interactions,
+        "pattern_analysis": pattern_analysis,
+        "timestamp": now.isoformat(),
+    }
+
+
+def _agent_llm(
+    disease_info: dict[str, Any] | None = None,
+    weather_info: dict[str, Any] | None = None,
+    market_info: dict[str, Any] | None = None,
+    farmer_query: str | None = None,
+    language: str = "en",
+    format_style: str = "whatsapp",
+) -> dict[str, Any]:
+    """
+    LLM Agent: Simulates Ollama/Gemini summary generation.
+    Generates a WhatsApp-style comprehensive advisory in the requested language.
+    """
+    now = datetime.now(timezone.utc)
+    sections = []
+
+    # Language greetings and headers
+    lang_config: dict[str, dict[str, str]] = {
+        "en": {
+            "greeting": "Namaste Kisaan!",
+            "disease_hdr": "Disease Alert",
+            "weather_hdr": "Weather & Irrigation",
+            "market_hdr": "Market Update",
+            "footer": "For expert help, call 1551.",
+        },
+        "hi": {
+            "greeting": "नमस्ते किसान!",
+            "disease_hdr": "रोग चेतावनी",
+            "weather_hdr": "मौसम और सिंचाई",
+            "market_hdr": "बाज़ार अपडेट",
+            "footer": "विशेषज्ञ सहायता के लिए 1551 पर कॉल करें।",
+        },
+        "pa": {
+            "greeting": "ਸਤ ਸ੍ਰੀ ਅਕਾਲ ਕਿਸਾਨ!",
+            "disease_hdr": "ਬਿਮਾਰੀ ਚੇਤਾਵਨੀ",
+            "weather_hdr": "ਮੌਸਮ ਅਤੇ ਸਿੰਚਾਈ",
+            "market_hdr": "ਮੰਡੀ ਅੱਪਡੇਟ",
+            "footer": "ਮਾਹਿਰ ਮਦਦ ਲਈ 1551 ਤੇ ਕਾਲ ਕਰੋ।",
+        },
+        "mr": {
+            "greeting": "नमस्कार शेतकरी!",
+            "disease_hdr": "रोग इशारा",
+            "weather_hdr": "हवामान आणि सिंचन",
+            "market_hdr": "बाजार भाव",
+            "footer": "तज्ञ मदतीसाठी 1551 वर कॉल करा।",
+        },
+        "ta": {
+            "greeting": "வணக்கம் விவசாயி!",
+            "disease_hdr": "நோய் எச்சரிக்கை",
+            "weather_hdr": "வானிலை & நீர்ப்பாசனம்",
+            "market_hdr": "சந்தை புதுப்பிப்பு",
+            "footer": "நிபுணர் உதவிக்கு 1551 அழைக்கவும்.",
+        },
+        "te": {
+            "greeting": "నమస్కారం రైతు!",
+            "disease_hdr": "వ్యాధి హెచ్చరిక",
+            "weather_hdr": "వాతావరణం & నీటిపారుదల",
+            "market_hdr": "మార్కెట్ అప్‌డేట్",
+            "footer": "నిపుణుల సహాయం కోసం 1551 కి కాల్ చేయండి.",
+        },
+        "bn": {
+            "greeting": "নমস্কার কৃষক!",
+            "disease_hdr": "রোগ সতর্কতা",
+            "weather_hdr": "আবহাওয়া ও সেচ",
+            "market_hdr": "বাজার আপডেট",
+            "footer": "বিশেষজ্ঞ সাহায্যের জন্য 1551 কল করুন।",
+        },
+    }
+
+    lc = lang_config.get(language, lang_config["en"])
+
+    if format_style == "whatsapp":
+        sep = "\n─────────────────\n"
+    elif format_style == "sms":
+        sep = " | "
+    else:
+        sep = "\n\n"
+
+    # Greeting
+    sections.append(lc["greeting"])
+
+    # Disease section
+    if disease_info:
+        disease_name = disease_info.get("top_prediction", {}).get(
+            "disease_name", "Unknown"
+        )
+        confidence = disease_info.get("top_prediction", {}).get("confidence", 0)
+        treatment = disease_info.get("treatment", "Consult KVK for treatment.")
+        crop = disease_info.get("crop_type", "")
+
+        if format_style == "sms":
+            sections.append(
+                f"{lc['disease_hdr']}: {disease_name} ({confidence:.0%}) on {crop}. {treatment}"
+            )
+        else:
+            sections.append(f"*{lc['disease_hdr']}*")
+            sections.append(f"Crop: {crop.title()}")
+            sections.append(f"Disease: {disease_name}")
+            sections.append(f"Confidence: {confidence:.1%}")
+            sections.append(f"Treatment: {treatment}")
+
+    # Weather section
+    if weather_info:
+        irrigation = weather_info.get("irrigation_advice", "Check soil moisture")
+        forecasts = weather_info.get("forecasts", [])
+        today = forecasts[0] if forecasts else {}
+
+        if format_style == "sms":
+            sections.append(
+                f"{lc['weather_hdr']}: {irrigation}. Today {today.get('condition', 'N/A')}, {today.get('temp_max_c', 'N/A')}C"
+            )
+        else:
+            sections.append(sep)
+            sections.append(f"*{lc['weather_hdr']}*")
+            if today:
+                sections.append(
+                    f"Today: {today.get('condition', 'N/A')}, {today.get('temp_max_c', 'N/A')}°C / {today.get('temp_min_c', 'N/A')}°C"
+                )
+                sections.append(f"Rain chance: {today.get('rain_probability', 0):.0%}")
+            sections.append(f"Advice: {irrigation}")
+
+    # Market section
+    if market_info:
+        best_time = market_info.get("best_selling_time", "Check mandi rates")
+        prices = market_info.get("mandi_prices", [])
+        best = prices[0] if prices else {}
+
+        if format_style == "sms":
+            sections.append(
+                f"{lc['market_hdr']}: Best Rs {best.get('price_per_quintal', 'N/A')}/qtl at {best.get('mandi_name', 'N/A')}. {best_time}"
+            )
+        else:
+            sections.append(sep)
+            sections.append(f"*{lc['market_hdr']}*")
+            if best:
+                sections.append(
+                    f"Best Price: Rs {best.get('price_per_quintal', 'N/A')}/qtl"
+                )
+                sections.append(f"Mandi: {best.get('mandi_name', 'N/A')}")
+                sections.append(f"Trend: {best.get('price_trend', 'N/A')}")
+            sections.append(f"Advice: {best_time}")
+
+    # Footer
+    sections.append(sep if format_style != "sms" else " | ")
+    sections.append(lc["footer"])
+
+    if format_style == "sms":
+        summary = " | ".join(s for s in sections if s.strip() and s != " | ")
+    else:
+        summary = "\n".join(sections)
+
+    # Follow-up suggestions
+    follow_ups = []
+    if disease_info:
+        disease_name = disease_info.get("top_prediction", {}).get("disease_name", "")
+        if "healthy" not in disease_name.lower():
+            follow_ups.append("Should I check treatment availability at nearby shops?")
+            follow_ups.append("Do you want a detailed spray schedule?")
+    if weather_info:
+        follow_ups.append("Want a 5-day detailed forecast?")
+    if market_info:
+        follow_ups.append("Should I track price trends for the next week?")
+        follow_ups.append("Do you want directions to the best-price mandi?")
+    if not follow_ups:
+        follow_ups = [
+            "Ask me anything about your crop!",
+            "Want fertilizer or irrigation advice?",
+        ]
+
+    return {
+        "summary": summary,
+        "language": language,
+        "format_style": format_style,
+        "model_used": "Simulated-Ollama-Gemini-7B-AgriFineTuned",
+        "follow_up_suggestions": follow_ups,
+        "timestamp": now.isoformat(),
+    }
+
+
+# ============================================================
+# Multi-Agent Pipeline: API Endpoints
+# ============================================================
+
+
+@app.post("/agent/vision", response_model=VisionResponse)
+async def agent_vision(request: VisionRequest):
+    """
+    Vision Agent: Classify crop disease from image/symptoms using simulated
+    MobileNetV2/ResNet trained on PlantVillage dataset (54K images, 38 classes).
+    """
+    result = _agent_vision(
+        crop_type=request.crop_type,
+        symptoms=request.symptoms,
+        image_base64=request.image_base64,
+    )
+    return VisionResponse(**result)
+
+
+@app.post("/agent/verify", response_model=VerifyResponse)
+async def agent_verify(request: VerifyRequest):
+    """
+    Verifier Agent: Evaluate risk/severity level and decide action
+    (MONITOR / TREAT / ESCALATE).
+    """
+    result = _agent_verify(
+        disease_name=request.disease_name,
+        confidence=request.confidence,
+        crop_type=request.crop_type,
+        spread_percentage=request.spread_percentage,
+        days_since_onset=request.days_since_onset,
+    )
+    return VerifyResponse(**result)
+
+
+@app.get("/agent/weather", response_model=WeatherResponse)
+async def agent_weather(
+    region: str = Query(
+        "north_india",
+        description="Region: north_india, central_india, south_india, east_india",
+    ),
+    crop_type: str = Query("wheat", description="Crop type for irrigation advice"),
+    lat: float | None = Query(None, description="Latitude (optional)"),
+    lon: float | None = Query(None, description="Longitude (optional)"),
+):
+    """
+    Weather Agent: Short-term forecast with irrigation advice.
+    """
+    result = _agent_weather(
+        region=region,
+        crop_type=crop_type,
+        lat=lat,
+        lon=lon,
+    )
+    return WeatherResponse(**result)
+
+
+@app.get("/agent/market", response_model=MarketResponse)
+async def agent_market(
+    crop_type: str = Query("wheat", description="Crop type for price data"),
+    region: str = Query(
+        "north_india",
+        description="Region: north_india, central_india, south_india, east_india",
+    ),
+):
+    """
+    Market Agent: Nearby mandi prices from simulated AgMarkNet data
+    with best selling time recommendation.
+    """
+    result = _agent_market(crop_type=crop_type, region=region)
+    return MarketResponse(**result)
+
+
+@app.post("/agent/memory/log", response_model=MemoryLogResponse)
+async def agent_memory_log(request: MemoryLogRequest):
+    """
+    Memory Agent (Log): Record a farmer interaction for profile building
+    and pattern analysis.
+    """
+    result = _agent_memory_log(
+        farmer_id=request.farmer_id,
+        interaction_type=request.interaction_type,
+        crop_type=request.crop_type,
+        disease_detected=request.disease_detected,
+        severity=request.severity,
+        location=request.location,
+        notes=request.notes,
+    )
+    return MemoryLogResponse(**result)
+
+
+@app.get("/agent/memory/{farmer_id}", response_model=MemoryGetResponse)
+async def agent_memory_get(farmer_id: str):
+    """
+    Memory Agent (Get): Retrieve farmer interaction history and pattern analysis.
+    """
+    result = _agent_memory_get(farmer_id=farmer_id)
+    return MemoryGetResponse(**result)
+
+
+@app.post("/agent/llm", response_model=LLMResponse)
+async def agent_llm(request: LLMRequest):
+    """
+    LLM Agent: Generate WhatsApp-style summaries in local language
+    using simulated Ollama/Gemini model.
+    """
+    result = _agent_llm(
+        disease_info=request.disease_info,
+        weather_info=request.weather_info,
+        market_info=request.market_info,
+        farmer_query=request.farmer_query,
+        language=request.language,
+        format_style=request.format_style,
+    )
+    return LLMResponse(**result)
+
+
+@app.post("/pipeline/analyze", response_model=PipelineResponse)
+async def pipeline_analyze(request: PipelineRequest):
+    """
+    Full Multi-Agent Pipeline: The crown jewel.
+
+    Takes crop photo metadata + location, orchestrates ALL agents in sequence:
+    Vision → Verifier → Weather → Market → Memory → LLM Summary
+    Returns comprehensive advisory in a single response.
+    """
+    pipeline_id = f"pipe-{uuid.uuid4().hex[:12]}"
+    now = datetime.now(timezone.utc)
+
+    # 1. Vision Agent — disease classification
+    vision_result = _agent_vision(
+        crop_type=request.crop_type,
+        symptoms=request.symptoms,
+        image_base64=request.image_base64,
+    )
+
+    # Extract top prediction for downstream agents
+    top_pred = vision_result.get("top_prediction", {})
+    disease_name = top_pred.get("disease_name", "Unknown")
+    confidence = top_pred.get("confidence", 0.0)
+
+    # 2. Verifier Agent — risk assessment
+    verify_result = _agent_verify(
+        disease_name=disease_name,
+        confidence=confidence,
+        crop_type=request.crop_type,
+    )
+
+    # 3. Weather Agent — forecast + irrigation
+    weather_result = _agent_weather(
+        region=request.region,
+        crop_type=request.crop_type,
+        lat=request.lat,
+        lon=request.lon,
+    )
+
+    # 4. Market Agent — mandi prices
+    market_result = _agent_market(
+        crop_type=request.crop_type,
+        region=request.region,
+    )
+
+    # 5. Memory Agent — log this interaction
+    memory_result = _agent_memory_log(
+        farmer_id=request.farmer_id,
+        interaction_type="pipeline_analysis",
+        crop_type=request.crop_type,
+        disease_detected=disease_name,
+        severity=verify_result.get("severity"),
+        location=request.region,
+        notes=f"Pipeline {pipeline_id}: {disease_name} ({confidence:.1%})",
+    )
+
+    # 6. LLM Agent — generate comprehensive summary
+    llm_result = _agent_llm(
+        disease_info=vision_result,
+        weather_info=weather_result,
+        market_info=market_result,
+        farmer_query=request.symptoms,
+        language=request.language,
+        format_style="whatsapp",
+    )
+
+    return PipelineResponse(
+        farmer_id=request.farmer_id,
+        crop_type=request.crop_type,
+        region=request.region,
+        pipeline_id=pipeline_id,
+        agents_executed=["vision", "verifier", "weather", "market", "memory", "llm"],
+        vision_result=vision_result,
+        verification_result=verify_result,
+        weather_result=weather_result,
+        market_result=market_result,
+        memory_result=memory_result,
+        llm_summary=llm_result,
+        full_summary=llm_result.get("summary", ""),
+        timestamp=now.isoformat(),
     )
 
 
