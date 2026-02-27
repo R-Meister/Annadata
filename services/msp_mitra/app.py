@@ -15,13 +15,17 @@ from typing import Any, Dict, List, Optional
 import logging
 import numpy as np
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from sqlalchemy import select, func as sa_func
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from services.shared.auth.router import router as auth_router, setup_rate_limiting
 from services.shared.config import settings
-from services.shared.db.session import init_db, close_db
+from services.shared.db.session import init_db, close_db, get_db
+from services.shared.db.models import PriceAlert
 
 # ---------------------------------------------------------------------------
 # Ensure the legacy backend package is importable.
@@ -282,8 +286,7 @@ MANDI_DATABASE: list[dict] = [
     },
 ]
 
-# In-memory alert store
-_price_alerts: list[dict] = []
+# Price alerts are now stored in PostgreSQL (price_alerts table)
 
 
 # ============================================================
@@ -769,13 +772,19 @@ async def find_nearest_mandis(req: NearestMandiRequest):
 
 
 @app.post("/alerts/create", tags=["alerts"])
-async def create_price_alert(req: PriceAlertRequest):
+async def create_price_alert(
+    req: PriceAlertRequest,
+    db: AsyncSession = Depends(get_db),
+):
     """Create a price alert — notifies when price crosses target.
 
     In production this would push via SMS/WhatsApp. Here we store
     the alert and evaluate it against current predictions.
     """
-    alert_id = f"alert-{len(_price_alerts) + 1:04d}"
+    # Generate alert_id based on DB count
+    count_result = await db.execute(select(sa_func.count()).select_from(PriceAlert))
+    current_count = count_result.scalar() or 0
+    alert_id = f"alert-{current_count + 1:04d}"
     now = datetime.utcnow()
 
     # Check current price & prediction to see if alert is already triggered
@@ -809,34 +818,38 @@ async def create_price_alert(req: PriceAlertRequest):
                     )
                     break
 
-    alert = {
-        "alert_id": alert_id,
-        "commodity": req.commodity,
-        "state": req.state,
-        "target_price": req.target_price,
-        "direction": req.direction,
-        "created_at": now.isoformat(),
-        "status": "triggered" if triggered else "active",
-        "trigger_message": trigger_message
+    db_alert = PriceAlert(
+        alert_id=alert_id,
+        commodity=req.commodity,
+        state=req.state,
+        target_price=req.target_price,
+        direction=req.direction,
+        status="triggered" if triggered else "active",
+        trigger_message=trigger_message
         if triggered
         else f"Monitoring {req.commodity} prices in {req.state}",
-    }
-    _price_alerts.append(alert)
+    )
+    db.add(db_alert)
+    await db.flush()
 
-    return alert
+    return db_alert.to_dict()
 
 
 @app.get("/alerts", tags=["alerts"])
 async def list_price_alerts(
     commodity: Optional[str] = Query(None),
     state: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
 ):
     """List all price alerts, optionally filtered."""
-    filtered = _price_alerts
+    stmt = select(PriceAlert)
     if commodity:
-        filtered = [a for a in filtered if a["commodity"].lower() == commodity.lower()]
+        stmt = stmt.where(sa_func.lower(PriceAlert.commodity) == commodity.lower())
     if state:
-        filtered = [a for a in filtered if a["state"].lower() == state.lower()]
+        stmt = stmt.where(sa_func.lower(PriceAlert.state) == state.lower())
+    result = await db.execute(stmt)
+    alerts = result.scalars().all()
+    filtered = [a.to_dict() for a in alerts]
     return {"alerts": filtered, "count": len(filtered)}
 
 

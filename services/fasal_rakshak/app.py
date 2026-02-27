@@ -7,13 +7,17 @@ import uuid
 
 import numpy as np
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from services.shared.auth.router import router as auth_router, setup_rate_limiting
 from services.shared.config import settings
-from services.shared.db.session import close_db, init_db
+from services.shared.db.session import close_db, init_db, get_db
+from services.shared.db.models import DiseaseDetection
 
 # ============================================================
 # Knowledge Base
@@ -1094,11 +1098,7 @@ DISEASE_PROTEIN_MAP: dict[str, dict] = {
     },
 }
 
-# ============================================================
-# In-memory detection history
-# ============================================================
-
-detection_history: list[dict] = []
+# DB: detection_history → DiseaseDetection table
 
 # ============================================================
 # Pydantic Models
@@ -1476,7 +1476,9 @@ async def root():
 
 
 @app.post("/detect", response_model=DetectionResponse)
-async def detect_disease(req: DiseaseDetectionRequest):
+async def detect_disease(
+    req: DiseaseDetectionRequest, db: AsyncSession = Depends(get_db)
+):
     """Detect crop disease from reported symptoms and environmental data."""
     crop_key = req.crop.strip().lower()
     diseases = CROP_DISEASES.get(crop_key)
@@ -1539,18 +1541,19 @@ async def detect_disease(req: DiseaseDetectionRequest):
     detection_id = f"det-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
     detected_at = datetime.now(timezone.utc).isoformat()
 
-    # Store in history
-    detection_history.append(
-        {
-            "detection_id": detection_id,
-            "crop": crop_key,
-            "top_disease": matches[0].name
+    # Store in history (DB)
+    db.add(
+        DiseaseDetection(
+            detection_id=detection_id,
+            crop=crop_key,
+            top_disease=matches[0].name
             if matches and matches[0].confidence > 0
             else None,
-            "confidence": matches[0].confidence if matches else None,
-            "detected_at": detected_at,
-        }
+            confidence=matches[0].confidence if matches else None,
+            detected_at=detected_at,
+        )
     )
+    await db.flush()
 
     return DetectionResponse(
         detection_id=detection_id,
@@ -1733,22 +1736,26 @@ async def get_pest_alerts(
 @app.get("/history", response_model=HistoryResponse)
 async def get_detection_history(
     crop: Optional[str] = Query(None, description="Filter by crop name"),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Return detection history from in-memory store, optionally filtered by crop."""
-    entries = detection_history
+    """Return detection history from database, optionally filtered by crop."""
+    stmt = select(DiseaseDetection).order_by(DiseaseDetection.id.desc())
     if crop:
         crop_key = crop.strip().lower()
-        entries = [e for e in entries if e["crop"] == crop_key]
+        stmt = stmt.where(DiseaseDetection.crop == crop_key)
+
+    result = await db.execute(stmt)
+    rows = result.scalars().all()
 
     detections = [
         HistoryEntry(
-            detection_id=e["detection_id"],
-            crop=e["crop"],
-            top_disease=e.get("top_disease"),
-            confidence=e.get("confidence"),
-            detected_at=e["detected_at"],
+            detection_id=r.detection_id,
+            crop=r.crop,
+            top_disease=r.top_disease,
+            confidence=r.confidence,
+            detected_at=r.detected_at,
         )
-        for e in reversed(entries)  # newest first
+        for r in rows
     ]
 
     return HistoryResponse(count=len(detections), detections=detections)

@@ -17,21 +17,21 @@ from typing import Literal
 
 import numpy as np
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from services.shared.auth.router import router as auth_router, setup_rate_limiting
 from services.shared.config import settings
-from services.shared.db.session import close_db, init_db
+from services.shared.db.session import close_db, init_db, get_db
+from services.shared.db.models import SoilAnalysis
 
 # ---------------------------------------------------------------------------
-# In-memory analysis store
+# Analysis results stored in PostgreSQL (soil_analyses table)
 # ---------------------------------------------------------------------------
-# Keyed by analysis_id (str) → SoilAnalysisResult dict.
-# Thread-safe for the single-process uvicorn case; for multi-worker
-# deployments swap this out for Redis / a database table.
-_analysis_store: dict[str, dict] = {}
 
 # ---------------------------------------------------------------------------
 # Optimal ranges & weights for soil health scoring
@@ -551,7 +551,9 @@ def _build_recommendations(sample: SoilSampleRequest) -> list[Recommendation]:
     return recs
 
 
-def _run_analysis(sample: SoilSampleRequest) -> SoilAnalysisResponse:
+async def _run_analysis(
+    sample: SoilSampleRequest, db: AsyncSession
+) -> SoilAnalysisResponse:
     """
     Core analysis pipeline.
 
@@ -624,8 +626,34 @@ def _run_analysis(sample: SoilSampleRequest) -> SoilAnalysisResponse:
         analyzed_at=now,
     )
 
-    # Persist for later retrieval via /report and /history
-    _analysis_store[analysis_id] = result.model_dump()
+    # Persist to PostgreSQL for later retrieval via /report and /history
+    db_record = SoilAnalysis(
+        analysis_id=analysis_id,
+        plot_id=sample.plot_id,
+        source="sensor_analysis",
+        latitude=sample.latitude,
+        longitude=sample.longitude,
+        soil_type=sample.soil_type,
+        temperature_celsius=sample.temperature_celsius,
+        nitrogen_ppm=sample.nitrogen_ppm,
+        phosphorus_ppm=sample.phosphorus_ppm,
+        potassium_ppm=sample.potassium_ppm,
+        ph_level=sample.ph_level,
+        organic_carbon_pct=sample.organic_carbon_pct,
+        moisture_pct=sample.moisture_pct,
+        ph_score=scores["ph"],
+        nitrogen_score=scores["nitrogen_ppm"],
+        phosphorus_score=scores["phosphorus_ppm"],
+        potassium_score=scores["potassium_ppm"],
+        organic_carbon_score=scores["organic_carbon_pct"],
+        moisture_score=scores["moisture_pct"],
+        health_score=health_score,
+        fertility_class=fertility_class,
+        recommendations=[r.model_dump() for r in recommendations],
+        analyzed_at=now,
+    )
+    db.add(db_record)
+    await db.flush()
 
     return result
 
@@ -838,7 +866,9 @@ def _predict_from_features(features: dict) -> dict[str, float]:
     }
 
 
-def _run_photo_analysis(req: SoilPhotoRequest) -> SoilPhotoResponse:
+async def _run_photo_analysis(
+    req: SoilPhotoRequest, db: AsyncSession
+) -> SoilPhotoResponse:
     """Full pipeline for photo-based soil analysis."""
     analysis_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
@@ -923,8 +953,36 @@ def _run_photo_analysis(req: SoilPhotoRequest) -> SoilPhotoResponse:
         analyzed_at=now,
     )
 
-    # Persist for later retrieval
-    _analysis_store[analysis_id] = result.model_dump()
+    # Persist to PostgreSQL for later retrieval
+    db_record = SoilAnalysis(
+        analysis_id=analysis_id,
+        plot_id=req.plot_id,
+        source="photo_analysis",
+        latitude=req.latitude,
+        longitude=req.longitude,
+        soil_type=result.soil_type,
+        region=req.region,
+        predicted_ph=result.predicted_ph,
+        predicted_nitrogen_ppm=result.predicted_nitrogen_ppm,
+        predicted_phosphorus_ppm=result.predicted_phosphorus_ppm,
+        predicted_potassium_ppm=result.predicted_potassium_ppm,
+        predicted_organic_carbon_pct=result.predicted_organic_carbon_pct,
+        predicted_moisture_pct=result.predicted_moisture_pct,
+        image_features=features,
+        confidence=confidence,
+        ph_score=result.ph_score,
+        nitrogen_score=result.nitrogen_score,
+        phosphorus_score=result.phosphorus_score,
+        potassium_score=result.potassium_score,
+        organic_carbon_score=result.organic_carbon_score,
+        moisture_score=result.moisture_score,
+        health_score=health_score,
+        fertility_class=fertility_class,
+        recommendations=[r.model_dump() for r in recommendations],
+        analyzed_at=now,
+    )
+    db.add(db_record)
+    await db.flush()
 
     return result
 
@@ -1380,16 +1438,16 @@ async def root():
 @app.post(
     "/analyze", response_model=SoilAnalysisResponse, status_code=status.HTTP_201_CREATED
 )
-async def analyze_soil(sample: SoilSampleRequest):
+async def analyze_soil(sample: SoilSampleRequest, db: AsyncSession = Depends(get_db)):
     """
     Analyze a single soil sample.
 
     Computes a health score (0-100) from pH, NPK, organic carbon, and
     moisture readings, classifies fertility, and returns actionable
-    recommendations.  The result is persisted in-memory so it can be
+    recommendations.  The result is persisted to PostgreSQL so it can be
     retrieved later via ``GET /report/{analysis_id}``.
     """
-    return _run_analysis(sample)
+    return await _run_analysis(sample, db)
 
 
 @app.post(
@@ -1397,7 +1455,7 @@ async def analyze_soil(sample: SoilSampleRequest):
     response_model=BatchAnalyzeResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def batch_analyze(body: BatchAnalyzeRequest):
+async def batch_analyze(body: BatchAnalyzeRequest, db: AsyncSession = Depends(get_db)):
     """
     Analyze multiple soil samples in one request.
 
@@ -1410,29 +1468,32 @@ async def batch_analyze(body: BatchAnalyzeRequest):
             detail="At least one sample is required.",
         )
 
-    results = [_run_analysis(s) for s in body.samples]
+    results = [await _run_analysis(s, db) for s in body.samples]
     return BatchAnalyzeResponse(results=results, count=len(results))
 
 
 @app.get("/report/{analysis_id}", response_model=SoilAnalysisResponse)
-async def get_report(analysis_id: str):
+async def get_report(analysis_id: str, db: AsyncSession = Depends(get_db)):
     """
     Retrieve a previously computed soil analysis report by its ID.
 
-    Returns 404 if the analysis_id is not found in the in-memory store.
+    Returns 404 if the analysis_id is not found in the database.
     """
-    record = _analysis_store.get(analysis_id)
+    stmt = select(SoilAnalysis).where(SoilAnalysis.analysis_id == analysis_id)
+    result = await db.execute(stmt)
+    record = result.scalar_one_or_none()
     if record is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Analysis '{analysis_id}' not found.",
         )
-    return record
+    return record.to_dict()
 
 
 @app.get("/history", response_model=HistoryResponse)
 async def get_analysis_history(
     plot_id: str = Query(..., description="Plot ID to retrieve history for"),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Return all analyses for a given plot, sorted by timestamp descending.
@@ -1441,11 +1502,16 @@ async def get_analysis_history(
     based on the health-score trajectory across analyses, using numpy
     linear regression.
     """
-    # Collect all analyses matching this plot_id
-    matching = [v for v in _analysis_store.values() if v["plot_id"] == plot_id]
+    # Collect all analyses matching this plot_id from DB
+    stmt = (
+        select(SoilAnalysis)
+        .where(SoilAnalysis.plot_id == plot_id)
+        .order_by(SoilAnalysis.analyzed_at.desc())
+    )
+    result = await db.execute(stmt)
+    rows = result.scalars().all()
 
-    # Sort by analyzed_at descending (most recent first)
-    matching.sort(key=lambda r: r["analyzed_at"], reverse=True)
+    matching = [r.to_dict() for r in rows]
 
     entries = [
         HistoryEntry(
@@ -1478,7 +1544,7 @@ async def get_analysis_history(
     response_model=SoilPhotoResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def analyze_photo(req: SoilPhotoRequest):
+async def analyze_photo(req: SoilPhotoRequest, db: AsyncSession = Depends(get_db)):
     """
     Analyze soil from a photograph or image metadata.
 
@@ -1504,7 +1570,7 @@ async def analyze_photo(req: SoilPhotoRequest):
                 "('hue', 'saturation', 'value')."
             ),
         )
-    return _run_photo_analysis(req)
+    return await _run_photo_analysis(req, db)
 
 
 # -------------------------------------------------------------------
