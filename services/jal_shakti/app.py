@@ -132,6 +132,9 @@ _plots: dict[str, dict] = {}
 # Irrigation event log: list of dicts with plot_id, farm_id, date, water_mm, method
 _irrigation_events: list[dict] = []
 
+# IoT valve states keyed by plot_id
+_valve_states: dict[str, dict] = {}
+
 # ============================================================
 # Enums
 # ============================================================
@@ -254,6 +257,95 @@ class SensorResponse(BaseModel):
     sensors: list[SensorReading]
     irrigation_active: bool
     last_updated: str
+
+
+# ---------- IoT Valve Control Models ----------
+
+
+class ValveAction(str, Enum):
+    open = "open"
+    close = "close"
+    auto = "auto"
+
+
+class ValveControlRequest(BaseModel):
+    """Body for POST /iot/valve-control."""
+
+    plot_id: str = Field(..., description="Plot identifier")
+    action: ValveAction = Field(..., description="Valve action: open, close, or auto")
+    flow_rate_pct: Optional[float] = Field(
+        default=None, ge=0, le=100, description="Flow rate percentage (0-100)"
+    )
+
+
+class ValveStatusResponse(BaseModel):
+    plot_id: str
+    valve_status: str
+    flow_rate_pct: float
+    battery_level_pct: float
+    solar_charge_watts: float
+    last_action: str
+    last_action_timestamp: str
+    auto_decision_reason: Optional[str] = None
+
+
+# ---------- Quantum Multi-Field Optimization Models ----------
+
+
+class QuantumFieldInput(BaseModel):
+    """Single field description for quantum optimization."""
+
+    plot_id: str = Field(..., description="Plot identifier")
+    crop: str = Field(..., description="Crop name")
+    area_hectares: float = Field(..., gt=0, description="Field area in hectares")
+    current_moisture_pct: float = Field(
+        ..., ge=0, le=100, description="Current soil moisture %"
+    )
+    soil_type: SoilType = Field(default=SoilType.loam, description="Soil type")
+    priority: float = Field(
+        default=1.0, ge=0.1, le=10.0, description="Irrigation priority weight"
+    )
+
+
+class QuantumOptimizeRequest(BaseModel):
+    """Body for POST /quantum-optimize."""
+
+    fields: list[QuantumFieldInput] = Field(
+        ..., min_length=1, max_length=50, description="List of fields to optimize"
+    )
+    total_water_liters: float = Field(
+        ..., gt=0, description="Total available water budget in litres"
+    )
+
+
+class FieldAllocation(BaseModel):
+    plot_id: str
+    crop: str
+    area_hectares: float
+    current_moisture_pct: float
+    target_moisture_pct: float
+    allocated_water_liters: float
+    irrigation_depth_mm: float
+    irrigation_duration_minutes: float
+    expected_moisture_after_pct: float
+    deficit_remaining_pct: float
+    priority: float
+
+
+class QuantumOptimizeResponse(BaseModel):
+    method: str
+    num_fields: int
+    total_water_budget_liters: float
+    total_water_allocated_liters: float
+    water_utilization_pct: float
+    quantum_allocations: list[FieldAllocation]
+    classical_allocations: list[FieldAllocation]
+    quantum_total_deficit: float
+    classical_total_deficit: float
+    quantum_advantage_pct: float
+    overall_efficiency_score: float
+    iterations_evaluated: int
+    generated_at: str
 
 
 # ============================================================
@@ -428,6 +520,8 @@ async def root():
             "Water usage analytics and efficiency metrics",
             "Simulated soil-moisture and flow sensors",
             "In-memory plot registration",
+            "IoT solar-powered smart valve control",
+            "Quantum multi-field irrigation optimization (QAOA)",
         ],
     }
 
@@ -857,6 +951,381 @@ async def get_sensor_data(plot_id: str):
         sensors=sensors,
         irrigation_active=irrigation_active,
         last_updated=now.isoformat(),
+    )
+
+
+# ============================================================
+# POST /iot/valve-control  &  GET /iot/valve-status/{plot_id}
+# ============================================================
+
+
+@app.post("/iot/valve-control", response_model=ValveStatusResponse)
+async def iot_valve_control(body: ValveControlRequest):
+    """Control a solar-powered smart irrigation valve (IoT).
+
+    Actions
+    -------
+    - **open**  – Open valve at the requested flow rate (default 100 %).
+    - **close** – Close valve (flow rate → 0 %).
+    - **auto**  – Read soil moisture for the plot and decide automatically
+      whether the valve should open or close based on field capacity and
+      current moisture.
+    """
+    now = datetime.now(timezone.utc)
+    plot = _plots.get(body.plot_id)
+
+    # Seed an RNG for simulated hardware readings
+    seed = (hash(body.plot_id) + now.timetuple().tm_yday * 100 + now.hour) % (2**31)
+    rng = np.random.default_rng(seed=seed)
+
+    # Simulated solar-powered battery level (higher during daytime)
+    hour = now.hour
+    solar_factor = max(0.0, np.sin(np.pi * (hour - 5) / 14)) if 5 <= hour <= 19 else 0.0
+    solar_charge_watts = round(float(solar_factor * rng.uniform(8.0, 15.0)), 1)
+    battery_level = float(
+        np.clip(rng.normal(75.0 + solar_factor * 20.0, 5.0), 10.0, 100.0)
+    )
+
+    # Determine flow rate and status based on action
+    auto_reason: Optional[str] = None
+
+    if body.action == ValveAction.auto:
+        # Auto-mode: decide based on soil moisture vs field capacity
+        soil_type_key = plot["soil_type"] if plot else "loam"
+        soil_props = SOIL_PROPERTIES.get(soil_type_key, SOIL_PROPERTIES["loam"])
+        fc = soil_props["field_capacity"]
+        wp = soil_props["wilting_point"]
+        current_moisture = plot["current_moisture_pct"] if plot else 25.0
+
+        # Management Allowable Depletion (MAD) threshold – irrigate when
+        # moisture drops below 50 % of available water above wilting point
+        mad_threshold = wp + 0.5 * (fc - wp)
+
+        if current_moisture < mad_threshold:
+            # Need irrigation – open valve
+            # Scale flow rate: lower moisture → higher flow
+            moisture_deficit_ratio = (
+                (mad_threshold - current_moisture) / (fc - wp) if (fc - wp) > 0 else 0.5
+            )
+            computed_flow = min(100.0, max(30.0, moisture_deficit_ratio * 100.0))
+            valve_status = "opened"
+            flow_rate_pct = round(computed_flow, 1)
+            auto_reason = (
+                f"Moisture {current_moisture:.1f}% < MAD threshold "
+                f"{mad_threshold:.1f}% → valve opened at {flow_rate_pct}% flow"
+            )
+        else:
+            valve_status = "closed"
+            flow_rate_pct = 0.0
+            auto_reason = (
+                f"Moisture {current_moisture:.1f}% >= MAD threshold "
+                f"{mad_threshold:.1f}% → valve closed (no irrigation needed)"
+            )
+
+    elif body.action == ValveAction.open:
+        valve_status = "opened"
+        flow_rate_pct = body.flow_rate_pct if body.flow_rate_pct is not None else 100.0
+
+    else:  # close
+        valve_status = "closed"
+        flow_rate_pct = 0.0
+
+    # Persist state in-memory
+    _valve_states[body.plot_id] = {
+        "plot_id": body.plot_id,
+        "valve_status": valve_status,
+        "flow_rate_pct": round(flow_rate_pct, 1),
+        "battery_level_pct": round(battery_level, 1),
+        "solar_charge_watts": solar_charge_watts,
+        "last_action": body.action.value,
+        "last_action_timestamp": now.isoformat(),
+        "auto_decision_reason": auto_reason,
+    }
+
+    return ValveStatusResponse(**_valve_states[body.plot_id])
+
+
+@app.get("/iot/valve-status/{plot_id}", response_model=ValveStatusResponse)
+async def iot_valve_status(plot_id: str):
+    """Return the current valve status for a plot.
+
+    If the valve has never been controlled, a default "closed" state is
+    returned.
+    """
+    state = _valve_states.get(plot_id)
+    if state:
+        return ValveStatusResponse(**state)
+
+    # No prior state – return sensible defaults
+    now = datetime.now(timezone.utc)
+    return ValveStatusResponse(
+        plot_id=plot_id,
+        valve_status="closed",
+        flow_rate_pct=0.0,
+        battery_level_pct=80.0,
+        solar_charge_watts=0.0,
+        last_action="none",
+        last_action_timestamp=now.isoformat(),
+        auto_decision_reason=None,
+    )
+
+
+# ============================================================
+# POST /quantum-optimize
+# ============================================================
+
+
+def _compute_field_water_need(
+    field: QuantumFieldInput,
+) -> tuple[float, float]:
+    """Return (water_need_liters, target_moisture_pct) for a single field.
+
+    Water need is the volume required to bring soil moisture from its
+    current level up to field capacity, accounting for soil type.
+    """
+    soil_props = SOIL_PROPERTIES.get(field.soil_type.value, SOIL_PROPERTIES["loam"])
+    fc = soil_props["field_capacity"]
+    target = fc  # aim for field capacity
+
+    deficit_pct = max(target - field.current_moisture_pct, 0.0)
+    # Convert deficit % → mm of water over the area
+    # Approximate: 1 % volumetric moisture over 1 m depth ≈ 10 mm water
+    # We assume an effective root zone depth of 0.5 m
+    depth_mm = deficit_pct * 0.5 * 10.0  # mm
+    area_m2 = field.area_hectares * 10_000
+    water_liters = depth_mm * area_m2  # 1 mm on 1 m² = 1 litre
+
+    return water_liters, target
+
+
+def _evaluate_allocation(
+    allocations: np.ndarray,
+    needs: np.ndarray,
+    priorities: np.ndarray,
+) -> float:
+    """Cost function: priority-weighted total remaining deficit.
+
+    Lower is better.
+    """
+    deficits = np.maximum(needs - allocations, 0.0)
+    return float(np.sum(priorities * deficits))
+
+
+def _qaoa_simulated_optimize(
+    needs: np.ndarray,
+    priorities: np.ndarray,
+    budget: float,
+    n_iterations: int = 2000,
+) -> tuple[np.ndarray, int]:
+    """Simulated QAOA-style combinatorial optimizer.
+
+    Explores allocation space using a quantum-annealing-inspired strategy:
+    - Start with many random candidate allocations.
+    - Iteratively perturb and keep improvements (simulated annealing with
+      a temperature schedule that mimics a QAOA variational sweep).
+    - The budget constraint is enforced by normalisation.
+
+    Returns the best allocation vector and the number of iterations evaluated.
+    """
+    n = len(needs)
+    rng = np.random.default_rng(seed=42)
+
+    # --- Initial population (batch of candidates) ---
+    pop_size = min(200, max(50, n * 20))
+    # Random allocations, then normalise to budget
+    population = rng.dirichlet(np.ones(n), size=pop_size) * budget
+
+    # Clamp each allocation to its need (don't over-water)
+    population = np.minimum(population, needs[np.newaxis, :])
+    # Re-distribute surplus to under-served fields
+    for i in range(pop_size):
+        surplus = budget - population[i].sum()
+        if surplus > 0:
+            remaining_need = needs - population[i]
+            remaining_need = np.maximum(remaining_need, 0.0)
+            total_remaining = remaining_need.sum()
+            if total_remaining > 0:
+                population[i] += remaining_need / total_remaining * surplus
+                population[i] = np.minimum(population[i], needs)
+
+    # Evaluate initial population
+    costs = np.array(
+        [_evaluate_allocation(ind, needs, priorities) for ind in population]
+    )
+    best_idx = int(np.argmin(costs))
+    best = population[best_idx].copy()
+    best_cost = costs[best_idx]
+
+    evaluated = pop_size
+
+    # --- Annealing loop ---
+    T_start = budget * 0.3
+    T_end = budget * 0.001
+    for it in range(n_iterations):
+        # Temperature schedule (exponential decay)
+        T = T_start * (T_end / T_start) ** (it / max(n_iterations - 1, 1))
+
+        # Pick a random candidate and perturb
+        idx = rng.integers(0, pop_size)
+        candidate = population[idx].copy()
+
+        # Perturbation: move water between two random fields
+        i, j = rng.choice(n, size=2, replace=False) if n > 1 else (0, 0)
+        transfer = rng.uniform(0, max(candidate[i] * 0.3, 1.0))
+        candidate[i] = max(candidate[i] - transfer, 0.0)
+        candidate[j] = min(candidate[j] + transfer, needs[j])
+
+        # Enforce budget
+        total = candidate.sum()
+        if total > budget and total > 0:
+            candidate *= budget / total
+        candidate = np.minimum(candidate, needs)
+
+        new_cost = _evaluate_allocation(candidate, needs, priorities)
+        evaluated += 1
+
+        # Metropolis acceptance
+        delta = new_cost - costs[idx]
+        if delta < 0 or (T > 0 and rng.random() < np.exp(-delta / T)):
+            population[idx] = candidate
+            costs[idx] = new_cost
+            if new_cost < best_cost:
+                best = candidate.copy()
+                best_cost = new_cost
+
+    return best, evaluated
+
+
+def _greedy_allocate(
+    needs: np.ndarray,
+    priorities: np.ndarray,
+    budget: float,
+) -> np.ndarray:
+    """Classical greedy allocation: highest-priority fields first."""
+    n = len(needs)
+    order = np.argsort(-priorities)  # descending priority
+    alloc = np.zeros(n)
+    remaining = budget
+    for i in order:
+        give = min(needs[i], remaining)
+        alloc[i] = give
+        remaining -= give
+        if remaining <= 0:
+            break
+    return alloc
+
+
+def _allocation_to_field_results(
+    fields: list[QuantumFieldInput],
+    allocations: np.ndarray,
+    targets: list[float],
+) -> list[FieldAllocation]:
+    """Convert raw allocation array into FieldAllocation response objects."""
+    results: list[FieldAllocation] = []
+    for idx, field in enumerate(fields):
+        water = float(allocations[idx])
+        area_m2 = field.area_hectares * 10_000
+        depth_mm = water / area_m2 if area_m2 > 0 else 0.0
+
+        # Estimate moisture increase from applied water (inverse of need calc)
+        moisture_increase = depth_mm / (0.5 * 10.0)  # reverse of deficit calc
+        expected_moisture = min(
+            field.current_moisture_pct + moisture_increase, targets[idx]
+        )
+        deficit_remaining = max(targets[idx] - expected_moisture, 0.0)
+
+        # Irrigation duration: assume drip at 40 L/min/ha as baseline
+        flow_rate_lpm = 40.0 * field.area_hectares
+        duration_min = water / flow_rate_lpm if flow_rate_lpm > 0 else 0.0
+
+        results.append(
+            FieldAllocation(
+                plot_id=field.plot_id,
+                crop=field.crop,
+                area_hectares=field.area_hectares,
+                current_moisture_pct=round(field.current_moisture_pct, 1),
+                target_moisture_pct=round(targets[idx], 1),
+                allocated_water_liters=round(water, 1),
+                irrigation_depth_mm=round(depth_mm, 2),
+                irrigation_duration_minutes=round(duration_min, 1),
+                expected_moisture_after_pct=round(expected_moisture, 1),
+                deficit_remaining_pct=round(deficit_remaining, 1),
+                priority=field.priority,
+            )
+        )
+    return results
+
+
+@app.post("/quantum-optimize", response_model=QuantumOptimizeResponse)
+async def quantum_optimize(body: QuantumOptimizeRequest):
+    """Find the optimal irrigation water allocation across multiple fields
+    using a simulated Quantum Approximate Optimization Algorithm (QAOA).
+
+    The optimizer minimises priority-weighted moisture deficit across all
+    fields subject to the total water budget constraint, then compares
+    the result against a classical greedy allocation.
+    """
+    now = datetime.now(timezone.utc)
+    fields = body.fields
+    budget = body.total_water_liters
+
+    # Compute per-field water needs and target moistures
+    needs_list: list[float] = []
+    targets: list[float] = []
+    for f in fields:
+        need, target = _compute_field_water_need(f)
+        needs_list.append(need)
+        targets.append(target)
+
+    needs = np.array(needs_list, dtype=np.float64)
+    priorities = np.array([f.priority for f in fields], dtype=np.float64)
+
+    # Scale iterations with problem size
+    n_iter = min(5000, max(1000, len(fields) * 500))
+
+    # --- Quantum (simulated QAOA) allocation ---
+    q_alloc, evaluated = _qaoa_simulated_optimize(needs, priorities, budget, n_iter)
+    q_deficit = _evaluate_allocation(q_alloc, needs, priorities)
+
+    # --- Classical greedy allocation ---
+    c_alloc = _greedy_allocate(needs, priorities, budget)
+    c_deficit = _evaluate_allocation(c_alloc, needs, priorities)
+
+    # Quantum advantage: % deficit reduction vs classical
+    if c_deficit > 0:
+        advantage_pct = (c_deficit - q_deficit) / c_deficit * 100.0
+    else:
+        advantage_pct = 0.0 if q_deficit == 0 else -100.0
+
+    # Build per-field result lists
+    q_results = _allocation_to_field_results(fields, q_alloc, targets)
+    c_results = _allocation_to_field_results(fields, c_alloc, targets)
+
+    # Overall efficiency: fraction of budget that was usefully applied
+    total_allocated = float(q_alloc.sum())
+    utilization = (total_allocated / budget * 100.0) if budget > 0 else 0.0
+
+    # Efficiency score: 100 means every litre went to a deficit
+    total_need = float(needs.sum())
+    if total_need > 0:
+        efficiency = min(total_allocated / total_need, 1.0) * 100.0
+    else:
+        efficiency = 100.0
+
+    return QuantumOptimizeResponse(
+        method="Simulated QAOA (Quantum Approximate Optimization Algorithm)",
+        num_fields=len(fields),
+        total_water_budget_liters=round(budget, 1),
+        total_water_allocated_liters=round(total_allocated, 1),
+        water_utilization_pct=round(utilization, 1),
+        quantum_allocations=q_results,
+        classical_allocations=c_results,
+        quantum_total_deficit=round(q_deficit, 1),
+        classical_total_deficit=round(c_deficit, 1),
+        quantum_advantage_pct=round(advantage_pct, 2),
+        overall_efficiency_score=round(efficiency, 1),
+        iterations_evaluated=evaluated,
+        generated_at=now.isoformat(),
     )
 
 
