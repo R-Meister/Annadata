@@ -1,5 +1,5 @@
 # MSP Mitra service dependencies
-# Base / shared deps (also listed in repo root requirements.txt)
+# Base / shared deps
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 pydantic>=2.0
@@ -12,6 +12,8 @@ asyncpg>=0.29.0
 # Auth
 python-jose[cryptography]>=3.3
 passlib[bcrypt]>=1.7
+bcrypt<4.1
+email-validator>=2.0.0
 
 # Background tasks
 celery>=5.3

@@ -17,9 +17,11 @@ RUN apt-get update && \
 COPY services/msp_mitra/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Package init file for "services.shared..." imports
+COPY services/__init__.py /app/services/__init__.py
+
 # Copy shared service code
 COPY services/shared /app/services/shared
-COPY services/__init__.py /app/services/__init__.py 2>/dev/null || true
 
 # Copy this service
 COPY services/msp_mitra /app/services/msp_mitra
@@ -28,7 +30,9 @@ COPY services/msp_mitra /app/services/msp_mitra
 COPY msp_mitra/backend /app/msp_mitra/backend
 
 # Copy data directory (price CSVs etc.) if present
-COPY data /app/data
+# Use a shell form so it doesn't fail if data/ is missing
+RUN mkdir -p /app/data
+COPY data/ /app/data/
 
 EXPOSE 8001
 

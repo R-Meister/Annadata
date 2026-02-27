@@ -2,7 +2,7 @@
 
 ## CRITICAL: SKILL LOADING PROTOCOL
 
-> **MANDATORY:** Before working on ANY task, you MUST load the relevant skills from `.agent/skills/`. This is the highest priority rule.
+> **MANDATORY:** Before working on ANY task, you MUST load the relevant skills from `.agent/skills/`. This is the highest priority rule. Also after all changes make git commits.
 
 ### Skill Loading Rules
 

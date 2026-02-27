@@ -292,21 +292,23 @@ services:
       dockerfile: Dockerfile
     container_name: annadata-frontend
     environment:
+      # Server-side rewrites need Docker network hostnames
       - NEXT_PUBLIC_API_BASE_URL=http://localhost
-      - NEXT_PUBLIC_MSP_MITRA_URL=http://localhost:8001
-      - NEXT_PUBLIC_SOILSCAN_URL=http://localhost:8002
-      - NEXT_PUBLIC_FASAL_RAKSHAK_URL=http://localhost:8003
-      - NEXT_PUBLIC_JAL_SHAKTI_URL=http://localhost:8004
-      - NEXT_PUBLIC_HARVEST_SHAKTI_URL=http://localhost:8005
-      - NEXT_PUBLIC_KISAAN_SAHAYAK_URL=http://localhost:8006
+      - NEXT_PUBLIC_MSP_MITRA_URL=http://msp-mitra:8001
+      - NEXT_PUBLIC_SOILSCAN_URL=http://soilscan-ai:8002
+      - NEXT_PUBLIC_FASAL_RAKSHAK_URL=http://fasal-rakshak:8003
+      - NEXT_PUBLIC_JAL_SHAKTI_URL=http://jal-shakti:8004
+      - NEXT_PUBLIC_HARVEST_SHAKTI_URL=http://harvest-shakti:8005
+      - NEXT_PUBLIC_KISAAN_SAHAYAK_URL=http://kisaan-sahayak:8006
     ports:
       - "3000:3000"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-      - /app/.next
     depends_on:
       - msp-mitra
+      - soilscan-ai
+      - fasal-rakshak
+      - jal-shakti
+      - harvest-shakti
+      - kisaan-sahayak
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.frontend.rule=PathPrefix(`/`)"

@@ -1,8 +1,11 @@
 # ============================================================
-# Dockerfile template for Celery workers
-# Each service can have its own Celery worker for ML tasks
+# Dockerfile for Celery workers
+# Runs shared Celery worker for background ML tasks
 # ============================================================
 FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
@@ -16,11 +19,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy shared modules
+# Package init + shared modules
+COPY services/__init__.py /app/services/__init__.py
 COPY services/shared/ /app/services/shared/
-
-# Copy service code
-COPY . .
 
 # Run celery worker
 CMD ["celery", "-A", "services.shared.celery_app.app.celery_app", "worker", \

@@ -1,3 +1,4 @@
+# Kisaan Sahayak service dependencies
 fastapi>=0.100.0
 uvicorn[standard]>=0.23.0
 pydantic>=2.0.0
@@ -6,10 +7,9 @@ sqlalchemy[asyncio]>=2.0.0
 asyncpg>=0.29.0
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.0
+bcrypt<4.1
+email-validator>=2.0.0
 celery>=5.3.0
 redis>=5.0.0
-# Domain-specific: LLM agents, speech, and NLP
-langchain>=0.1.0
-openai>=1.6.0
-google-cloud-speech>=2.22.0
+# Domain-specific (rule-based knowledge system, no LLM APIs needed yet)
 httpx>=0.25.0
