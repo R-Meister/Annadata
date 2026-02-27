@@ -2,238 +2,162 @@
   <tr>
     <td><img src="Logo_withoutbg.png" alt="Annadata" width="100"/></td>
     <td>
-      <h1>Annadata</h1>
-      <p><strong>Quantum-Aware Agricultural Yield Forecasting & Distribution</strong></p>
+      <h1>Annadata OS</h1>
+      <p><strong>Multi-Service AI Agriculture Platform</strong></p>
     </td>
   </tr>
 </table>
 
-[![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![Qiskit](https://img.shields.io/badge/Qiskit-1.1+-purple.svg)](https://qiskit.org/)
+[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg)](https://fastapi.tiangolo.com/)
+[![Next.js](https://img.shields.io/badge/Next.js-16-black.svg)](https://nextjs.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791.svg)](https://www.postgresql.org/)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED.svg)](https://docs.docker.com/compose/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Build Status](https://img.shields.io/badge/Build-In%20Development-orange.svg)](#)
 
-> **Revolutionizing precision agriculture through the power of quantum computing, artificial intelligence, and multi-modal data integration.**
+> Empowering Indian farmers with quantum-aware yield forecasting, market intelligence, soil analysis, crop protection, smart irrigation, and AI-powered decision support.
 
-A groundbreaking fusion of quantum computing and precision agriculture that addresses critical challenges in food security, sustainability, and resource optimization. This platform demonstrates quantum advantage in agricultural forecasting while integrating satellite imagery, IoT sensors, weather data, and blockchain-secured supply chain management.
+Annadata OS is a multi-service AI agriculture platform where each service runs as an independent FastAPI microservice sharing PostgreSQL and Redis, with a unified Next.js dashboard frontend. The platform integrates quantum computing, classical ML, and real-time data to address food security, sustainability, and resource optimization.
 
-## Key Features
+## Platform Services
 
-### Core Capabilities
-- **Quantum-Enhanced Yield Prediction**: Variational Quantum Circuits (VQC) achieving 30%+ MSE reduction over classical methods
-- **Multi-Modal Data Integration**: Seamlessly combines satellite imagery, IoT sensors, weather APIs, and blockchain data
-- **Hybrid Classical-Quantum Architecture**: Best-of-both-worlds approach with automatic fallback mechanisms
-- **Real-Time Supply Chain Optimization**: Quantum annealing for distribution routing and cold-chain management
-
-### Advanced Features
-- **Quantum Weather Synthesis Engine**: Hyper-local climate predictions with extreme event detection
-- **Genetic Optimization Matrix**: AI-driven crop breeding recommendations for climate resilience
-- **Environmental Impact Quantifier**: Real-time carbon footprint and biodiversity assessment
-- **Autonomous Fleet Management**: Quantum-optimized coordination of drones, tractors, and harvesting equipment
-
-### Performance Targets
-- **Prediction Accuracy**: >95% yield forecasting accuracy (vs. 85% industry standard)
-- **Resource Efficiency**: 30% reduction in water usage, 25% reduction in fertilizer use
-- **Economic Impact**: 15% average yield increase for participating farms
-- **Environmental Benefits**: Measurable reduction in carbon emissions and biodiversity impact
+| Service | Port | Description | Status |
+|---------|------|-------------|--------|
+| **MSP Mitra** | 8001 | Price intelligence & market analytics (1.1M+ records, Prophet + ensemble ML) | Active |
+| **SoilScan AI** | 8002 | AI-powered soil health analysis using satellite imagery & sensor data | Scaffold |
+| **Fasal Rakshak** | 8003 | Crop disease detection & pest management recommendations | Scaffold |
+| **Jal Shakti** | 8004 | Smart irrigation scheduling & water resource management | Scaffold |
+| **Harvest Shakti** | 8005 | Harvest timing optimization & yield estimation DSS | Scaffold |
+| **Kisaan Sahayak** | 8006 | Multi-agent AI assistant for personalized farming guidance | Scaffold |
+| **Protein Engineering** | 8000 | Protein trait-to-gene mapping & climate crop profiles | Active |
+| **Frontend** | 3000 | Unified Next.js dashboard | Active |
 
 ## Architecture
 
-```mermaid
-graph TB
-    subgraph "Data Sources"
-        A[Satellite Imagery<br/>Sentinel-2] 
-        B[Weather APIs<br/>OpenWeather/NOAA]
-        C[IoT Sensors<br/>Soil/Climate]
-        D[Blockchain<br/>Supply Chain]
-    end
-    
-    subgraph "Data Pipeline"
-        E[ETL Orchestrator<br/>Apache Airflow]
-        F[PostgreSQL<br/>Structured Data]
-        G[InfluxDB<br/>Time Series]
-    end
-    
-    subgraph "ML/Quantum Engine"
-        H[Classical Models<br/>RF/SVR/LSTM]
-        I[Quantum Models<br/>VQC/QSVM/QLSTM]
-        J[Hybrid Optimizer<br/>Classical-Quantum]
-    end
-    
-    subgraph "Advanced Features"
-        K[Weather Synthesis<br/>Quantum Engine]
-        L[Genetic Matrix<br/>Crop Optimization]
-        M[Supply Chain<br/>Quantum Routing]
-    end
-    
-    subgraph "User Interface"
-        N[Farmer Dashboard<br/>React.js]
-        O[REST API<br/>Flask/FastAPI]
-        P[Mobile App<br/>React Native]
-    end
-    
-    A --> E
-    B --> E
-    C --> E
-    D --> E
-    E --> F
-    E --> G
-    F --> H
-    G --> H
-    F --> I
-    G --> I
-    H --> J
-    I --> J
-    J --> K
-    J --> L
-    J --> M
-    K --> O
-    L --> O
-    M --> O
-    O --> N
-    O --> P
 ```
+Annadata OS
+├── services/                  # Microservices (new architecture)
+│   ├── shared/                # Shared infrastructure
+│   │   ├── config.py          # Centralized settings (Pydantic)
+│   │   ├── db/                # Async SQLAlchemy 2.0 + PostgreSQL
+│   │   ├── auth/              # JWT auth (register/login/roles)
+│   │   └── celery_app/        # Background task queue (Redis broker)
+│   ├── msp_mitra/             # Price intelligence service
+│   ├── soilscan_ai/           # Soil analysis service
+│   ├── fasal_rakshak/         # Crop protection service
+│   ├── jal_shakti/            # Water management service
+│   ├── harvest_shakti/        # Harvest DSS service
+│   └── kisaan_sahayak/        # AI assistant service
+├── frontend/                  # Unified Next.js 16 dashboard
+│   ├── app/                   # App Router pages
+│   ├── components/            # UI + layout components
+│   ├── lib/                   # API client, utils, query client
+│   └── store/                 # Zustand state (auth, services)
+├── infra/                     # Docker templates
+├── src/                       # Core ML/Quantum pipeline
+│   ├── models/                # Classical + Quantum ML models
+│   ├── quantum/               # Quantum strategies (Qiskit)
+│   ├── data_pipeline/         # ETL + feature engineering
+│   └── api/                   # Core FastAPI app
+├── msp_mitra/                 # MSP Mitra legacy backend + data
+├── protein_engineering/       # Protein Engineering sub-app
+├── data/                      # Raw + processed datasets
+├── docker-compose.yml         # Full orchestration
+├── .env.example               # Environment variables template
+└── start.sh                   # Dev start script
+```
+
+## Tech Stack
+
+### Backend
+- **FastAPI** (Python 3.11) with Pydantic v2 validation
+- **SQLAlchemy 2.0** async ORM with **asyncpg** driver
+- **PostgreSQL 15** shared database
+- **Redis 7** for caching + Celery broker
+- **Celery** for background ML tasks
+- **JWT authentication** with role-based access (farmer/trader/researcher/admin)
+
+### Frontend
+- **Next.js 16** (App Router) with **React 19**
+- **TypeScript** (strict mode)
+- **Tailwind CSS v4** with CSS custom properties
+- **TanStack Query** for server state
+- **Zustand** for client state
+- **GSAP** + **Lottie** for animations
+
+### Infrastructure
+- **Docker Compose** for development orchestration
+- **Traefik** optional reverse proxy / API gateway
+- **Kubernetes** production-ready path
+
+### ML / Quantum
+- 6 trained classical models (Linear Regression, Random Forest, SVR)
+- Quantum VQR model (Qiskit 1.4.5, 4 qubits, COBYLA optimizer)
+- 3 quantum strategies for yield forecasting
+- 40+ engineered weather + crop features
 
 ## Quick Start
 
-### Prerequisites
-
-- Python 3.9+
-- Node.js 16+ (for dashboard)
-- PostgreSQL 13+
-- Docker (recommended)
-- Quantum computing access (IBM Quantum Experience or D-Wave Leap accounts)
-
-### Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/pranav271103/Annadata.git
-   cd Annadata
-   ```
-
-2. **Set up Python environment**
-   ```bash
-   # Using conda (recommended)
-   conda create -n Annadata python=3.9
-   conda activate Annadata
-   
-   # Install dependencies
-   pip install -r requirements.txt
-   ```
-
-3. **Configure environment variables**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your API keys and configuration
-   ```
-
-4. **Initialize database**
-   ```bash
-   make setup-db
-   ```
-
-5. **Run the application**
-   ```bash
-   # Start backend services
-   make dev-backend
-   
-   # Start frontend dashboard (new terminal)
-   make dev-frontend
-   ```
-
-Visit `http://localhost:3000` for the farmer dashboard and `http://localhost:5000/docs` for API documentation.
-
-## Documentation
-
-### For Users
-- [Getting Started Guide](docs/GETTING_STARTED.md)
-- [Farmer Dashboard Tutorial](docs/user-guides/farmer-dashboard.md)
-- [API Reference](docs/API_REFERENCE.md)
-- [Troubleshooting](docs/user-guides/troubleshooting.md)
-
-### For Developers
-- [Development Setup](docs/DEVELOPMENT.md)
-- [Architecture Overview](docs/architecture/system-design.md)
-- [Quantum Algorithms](docs/architecture/quantum-algorithms.md)
-
-### Academic Resources
-- [Technical Paper](docs/academic/papers/quantum-agri-forecasting-2026.pdf)
-- [Thesis Documentation](docs/academic/thesis/)
-- [Literature Review](docs/academic/literature-review/)
-- [Methodology](docs/academic/methodology/)
-
-## Usage Examples
-
-### Yield Prediction
-```python
-from src.models.quantum import VQCYieldPredictor
-from src.data_pipeline.ingestion import WeatherDataCollector
-
-# Initialize models
-vqc_predictor = VQCYieldPredictor(num_qubits=8)
-weather_collector = WeatherDataCollector()
-
-# Get current conditions
-weather_data = weather_collector.get_current_weather(lat=28.6139, lon=77.2090)
-
-# Make prediction
-prediction = vqc_predictor.predict(weather_data)
-print(f"Predicted yield: {prediction:.2f} tons/hectare")
-```
-
-### Supply Chain Optimization
-```python
-from src.optimization import QuantumRouteOptimizer
-
-optimizer = QuantumRouteOptimizer()
-optimal_route = optimizer.optimize_delivery_route(
-    farms=farm_locations,
-    warehouses=warehouse_locations,
-    constraints={'max_distance': 500, 'cold_chain_time': 4}
-)
-```
-
-### REST API Usage
 ```bash
-# Get weather data
-curl -X GET "http://localhost:5000/api/v1/weather?lat=28.6139&lon=77.2090"
+# Clone
+git clone https://github.com/R-Meister/Annadata.git
+cd Annadata
 
-# Predict yield
-curl -X POST "http://localhost:5000/api/v1/predict/yield" \
-     -H "Content-Type: application/json" \
-     -d '{"temperature": 25, "humidity": 60, "precipitation": 2}'
+# Copy environment config
+cp .env.example .env
+
+# Start everything with Docker
+./start.sh
+
+# Or start just infrastructure
+./start.sh infra
+
+# Or run services locally
+./start.sh local
 ```
 
-## Quantum Computing Components
+Visit:
+- **Dashboard**: http://localhost:3000
+- **MSP Mitra API**: http://localhost:8001/docs
+- **Traefik Dashboard**: http://localhost:8080 (with `--profile gateway`)
 
-### Supported Quantum Backends
-- **IBM Quantum Experience**: Access to real quantum hardware
-- **D-Wave Leap**: Quantum annealing for optimization problems
-- **Local Simulators**: Qiskit Aer, Cirq simulators for development
+For detailed setup instructions, see **[run.md](run.md)**.
 
-### Quantum Algorithms Implemented
-- **Variational Quantum Circuits (VQC)**: For regression and yield prediction
-- **Quantum Support Vector Machines (QSVM)**: High-dimensional data classification
-- **Quantum Long Short-Term Memory (QLSTM)**: Time-series weather analysis
-- **Quantum Approximate Optimization Algorithm (QAOA)**: Supply chain routing
+## API Endpoints
 
-### Quantum Advantage Metrics
-| Model | Classical MSE | Quantum MSE | Improvement |
-|-------|---------------|-------------|-------------|
-| Yield Prediction | 45.12 | 28.00 | 38% |
-| Weather Forecasting | 12.5 | 8.7 | 30% |
-| Route Optimization | N/A | N/A | 40% faster |
+### Authentication (all services)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/auth/register` | Register a new user |
+| POST | `/auth/login` | Login and get JWT token |
+| GET | `/auth/me` | Get current user profile |
 
-### Upcoming Milestones
-- **November 2025**: Working prototype demo
-- **February 2026**: Feature modules complete
-- **April 2026**: System integration and final deployment
+### MSP Mitra (port 8001)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/commodities` | List available commodities |
+| GET | `/states` | List all states |
+| GET | `/prices/{commodity}/{state}` | Get latest prices |
+| GET | `/predict/{commodity}/{state}` | Get price predictions |
+| GET | `/recommend/{commodity}/{state}` | Get sell recommendations |
+| GET | `/analytics/volatility/{commodity}/{state}` | Volatility analysis |
+| GET | `/analytics/trends/{commodity}/{state}` | Trend analysis |
+| GET | `/analytics/insights/{commodity}/{state}` | AI market insights |
 
+### Other Services
+Each service exposes `/health` for monitoring and service-specific endpoints documented at `http://localhost:{port}/docs`.
+
+## Data Assets
+
+| Dataset | Records | Description |
+|---------|---------|-------------|
+| AgMarkNet prices | 1.1M+ | Historical agricultural commodity prices (2024-2025) |
+| Crop yield | 19,690 | Crop yield data across Indian regions |
+| Weather data | 5,840+ | Synthetic weather records across 8 regions |
+| Trained models | 8 | Classical + quantum model artifacts (.pkl) |
 
 ## Team
 
-### Core Development Team
 | Member | Role | GitHub |
 |--------|------|--------|
 | **Pranav Singh** | Quantum/AI Developer | [pranav271103](https://github.com/pranav271103) |
@@ -243,98 +167,28 @@ curl -X POST "http://localhost:5000/api/v1/predict/yield" \
 
 ## Contributing
 
-We welcome contributions from the quantum computing, agriculture, and AI communities! 
-
-### How to Contribute
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Make your changes and add tests
-4. Commit your changes (`git commit -m 'Add amazing feature'`)
-5. Push to the branch (`git push origin feature/amazing-feature`)
+4. Commit (`git commit -m 'Add amazing feature'`)
+5. Push (`git push origin feature/amazing-feature`)
 6. Open a Pull Request
 
-### Contribution Areas
-- **Quantum Algorithms**: New quantum ML models or optimization techniques
-- **Agricultural Data**: Domain expertise in crop science and farming practices
-- **Frontend Development**: Dashboard improvements and mobile app features
-- **Documentation**: Tutorials, examples, and user guides
-- **Testing**: Unit tests, integration tests, and performance benchmarks
+### Adding a New Service
 
+Each new service should:
+1. Have its own directory under `services/`
+2. Include `app.py`, `tasks.py`, `requirements.txt`, `Dockerfile`
+3. Register itself in `docker-compose.yml`
+4. Share PostgreSQL + Redis via `services/shared/`
+5. Expose a `/health` endpoint
+6. Use async SQLAlchemy and Celery for heavy ML tasks
 
-## Project Metrics
-
-### Development Activity
-![GitHub commit activity](https://img.shields.io/github/commit-activity/m/pranav271103/Annadata)
-![GitHub issues](https://img.shields.io/github/issues/pranav271103/Annadata)
-![GitHub pull requests](https://img.shields.io/github/issues-pr/pranav271103/Annadata)
-
-## Related Projects & Research
-
-### Academic Papers
-- [Quantum Computing Applications in Agriculture: A Comprehensive Review (2024)](https://doi.org/example)
-- [Variational Quantum Circuits for Crop Yield Prediction (2025)](https://doi.org/example)
-- [Hybrid Classical-Quantum Approaches in Precision Farming (2025)](https://doi.org/example)
-
-### Similar Projects
-- [IBM Quantum Agriculture Initiative](https://quantum-computing.ibm.com/agriculture)
-- [D-Wave Supply Chain Optimization](https://www.dwavesys.com/applications/supply-chain/)
-- [Microsoft FarmBeats Platform](https://www.microsoft.com/en-us/research/project/farmbeats/)
-
-## Market Impact & Business Model
-
-### Target Market
-- **Large-Scale Commercial Farms**: 1,000+ acres, $1M+ annual revenue
-- **Agricultural Cooperatives**: Shared resources for small-medium farmers
-- **Agribusiness Corporations**: Food processing and distribution companies
-- **Government Agencies**: Regional food security and agricultural policy
-
-### Revenue Model
-- **SaaS Subscriptions**: $500-5,000/month based on farm size
-- **Consulting Services**: Implementation and optimization consulting
-- **Data Analytics**: Premium insights and market intelligence
-- **Hardware Integration**: Partnerships with IoT device manufacturers
-
-### Market Size
-- Global AgTech Market: $30-35 billion by 2025
-- Quantum Computing in Agriculture: Blue ocean opportunity
-- Precision Farming: $11.38B (2025) → $21.45B (2032)
-
-## Security & Privacy
-
-### Data Protection
-- End-to-end encryption for sensitive farm data
-- GDPR compliant data handling and storage
-- Blockchain-based audit trails for transparency
-- Post-quantum cryptography for future-proofing
-
-### Quantum Security
-- Quantum-resistant encryption algorithms
-- Secure quantum key distribution protocols
-- Protection against quantum computing attacks on classical data
-
-## Environmental Impact
-
-### Sustainability Goals
-- **Carbon Footprint Reduction**: Real-time tracking and optimization
-- **Water Conservation**: 30% reduction through precision irrigation
-- **Biodiversity Protection**: Ecosystem impact modeling and recommendations
-- **Waste Reduction**: Supply chain optimization reducing food waste by 25%
-
-### UN SDG Alignment
-- **Goal 2**: Zero Hunger - Enhanced food security through better yields
-- **Goal 12**: Responsible Consumption - Optimized resource usage
-- **Goal 13**: Climate Action - Climate-resilient farming practices
-- **Goal 15**: Life on Land - Biodiversity conservation integration
-
-## License 
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-### Bug Reports & Feature Requests
-Please use [GitHub Issues](https://github.com/pranav271103/Annadata/issues) for:
-- Bug reports
-- Feature requests
-- Technical questions
-- Documentation improvements
+## Links
 
----
+- [How to Run](run.md) - Detailed setup and run instructions
+- [Bug Reports & Feature Requests](https://github.com/pranav271103/Annadata/issues)
