@@ -36,5 +36,10 @@ celery_app.autodiscover_tasks(
         "services.jal_shakti",
         "services.harvest_shakti",
         "services.kisaan_sahayak",
+        "services.protein_engineering",
+        "services.kisan_credit",
+        "services.harvest_to_cart",
+        "services.beej_suraksha",
+        "services.mausam_chakra",
     ]
 )

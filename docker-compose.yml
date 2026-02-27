@@ -261,6 +261,167 @@ services:
       - annadata-net
 
   # --------------------------------------------------------
+  # Protein Engineering Service (port 8007)
+  # --------------------------------------------------------
+  protein-engineering:
+    build:
+      context: .
+      dockerfile: services/protein_engineering/Dockerfile
+    container_name: annadata-protein-engineering
+    environment:
+      - POSTGRES_SERVER=postgres
+      - REDIS_HOST=redis
+      - SERVICE_NAME=protein_engineering
+      - SERVICE_PORT=8007
+    env_file:
+      - .env
+    ports:
+      - "8007:8007"
+    volumes:
+      - ./services/protein_engineering:/app/services/protein_engineering
+      - ./services/shared:/app/services/shared
+      - ./protein_engineering:/app/protein_engineering
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.protein-engineering.rule=PathPrefix(`/api/protein-engineering`)"
+      - "traefik.http.services.protein-engineering.loadbalancer.server.port=8007"
+    networks:
+      - annadata-net
+
+  # --------------------------------------------------------
+  # Kisan Credit Score Service (port 8008)
+  # --------------------------------------------------------
+  kisan-credit:
+    build:
+      context: .
+      dockerfile: services/kisan_credit/Dockerfile
+    container_name: annadata-kisan-credit
+    environment:
+      - POSTGRES_SERVER=postgres
+      - REDIS_HOST=redis
+      - SERVICE_NAME=kisan_credit
+      - SERVICE_PORT=8008
+    env_file:
+      - .env
+    ports:
+      - "8008:8008"
+    volumes:
+      - ./services/kisan_credit:/app/services/kisan_credit
+      - ./services/shared:/app/services/shared
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.kisan-credit.rule=PathPrefix(`/api/kisan-credit`)"
+      - "traefik.http.services.kisan-credit.loadbalancer.server.port=8008"
+    networks:
+      - annadata-net
+
+  # --------------------------------------------------------
+  # Harvest-to-Cart Service (port 8009)
+  # --------------------------------------------------------
+  harvest-to-cart:
+    build:
+      context: .
+      dockerfile: services/harvest_to_cart/Dockerfile
+    container_name: annadata-harvest-to-cart
+    environment:
+      - POSTGRES_SERVER=postgres
+      - REDIS_HOST=redis
+      - SERVICE_NAME=harvest_to_cart
+      - SERVICE_PORT=8009
+    env_file:
+      - .env
+    ports:
+      - "8009:8009"
+    volumes:
+      - ./services/harvest_to_cart:/app/services/harvest_to_cart
+      - ./services/shared:/app/services/shared
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.harvest-to-cart.rule=PathPrefix(`/api/harvest-to-cart`)"
+      - "traefik.http.services.harvest-to-cart.loadbalancer.server.port=8009"
+    networks:
+      - annadata-net
+
+  # --------------------------------------------------------
+  # Beej Suraksha Service (port 8010)
+  # --------------------------------------------------------
+  beej-suraksha:
+    build:
+      context: .
+      dockerfile: services/beej_suraksha/Dockerfile
+    container_name: annadata-beej-suraksha
+    environment:
+      - POSTGRES_SERVER=postgres
+      - REDIS_HOST=redis
+      - SERVICE_NAME=beej_suraksha
+      - SERVICE_PORT=8010
+    env_file:
+      - .env
+    ports:
+      - "8010:8010"
+    volumes:
+      - ./services/beej_suraksha:/app/services/beej_suraksha
+      - ./services/shared:/app/services/shared
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.beej-suraksha.rule=PathPrefix(`/api/beej-suraksha`)"
+      - "traefik.http.services.beej-suraksha.loadbalancer.server.port=8010"
+    networks:
+      - annadata-net
+
+  # --------------------------------------------------------
+  # Mausam Chakra Service (port 8011)
+  # --------------------------------------------------------
+  mausam-chakra:
+    build:
+      context: .
+      dockerfile: services/mausam_chakra/Dockerfile
+    container_name: annadata-mausam-chakra
+    environment:
+      - POSTGRES_SERVER=postgres
+      - REDIS_HOST=redis
+      - SERVICE_NAME=mausam_chakra
+      - SERVICE_PORT=8011
+    env_file:
+      - .env
+    ports:
+      - "8011:8011"
+    volumes:
+      - ./services/mausam_chakra:/app/services/mausam_chakra
+      - ./services/shared:/app/services/shared
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mausam-chakra.rule=PathPrefix(`/api/mausam-chakra`)"
+      - "traefik.http.services.mausam-chakra.loadbalancer.server.port=8011"
+    networks:
+      - annadata-net
+
+  # --------------------------------------------------------
   # Celery Worker (shared across services)
   # --------------------------------------------------------
   celery-worker:
@@ -300,6 +461,11 @@ services:
       - NEXT_PUBLIC_JAL_SHAKTI_URL=http://jal-shakti:8004
       - NEXT_PUBLIC_HARVEST_SHAKTI_URL=http://harvest-shakti:8005
       - NEXT_PUBLIC_KISAAN_SAHAYAK_URL=http://kisaan-sahayak:8006
+      - NEXT_PUBLIC_PROTEIN_ENGINEERING_URL=http://protein-engineering:8007
+      - NEXT_PUBLIC_KISAN_CREDIT_URL=http://kisan-credit:8008
+      - NEXT_PUBLIC_HARVEST_TO_CART_URL=http://harvest-to-cart:8009
+      - NEXT_PUBLIC_BEEJ_SURAKSHA_URL=http://beej-suraksha:8010
+      - NEXT_PUBLIC_MAUSAM_CHAKRA_URL=http://mausam-chakra:8011
     ports:
       - "3000:3000"
     depends_on:
@@ -309,6 +475,11 @@ services:
       - jal-shakti
       - harvest-shakti
       - kisaan-sahayak
+      - protein-engineering
+      - kisan-credit
+      - harvest-to-cart
+      - beej-suraksha
+      - mausam-chakra
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.frontend.rule=PathPrefix(`/`)"
