@@ -3,6 +3,8 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional
+import hashlib
+import json
 import uuid
 
 import numpy as np
@@ -931,6 +933,311 @@ async def get_statistics():
         "total_reports": total_reports,
         "flagged_dealers_count": flagged_dealers,
         "avg_trust_score": avg_trust,
+    }
+
+
+# ============================================================
+# Blockchain Supply Chain Tracking — Models
+# ============================================================
+
+
+class BlockchainTransactionRequest(BaseModel):
+    qr_code_id: str = Field(..., description="QR code ID of the seed batch")
+    transaction_type: str = Field(
+        ...,
+        description="Transaction type: manufactured, quality_checked, distributed, sold, delivered",
+    )
+    actor_name: str = Field(
+        ..., description="Name of the actor performing the transaction"
+    )
+    actor_role: str = Field(
+        ...,
+        description="Role of the actor: manufacturer, distributor, dealer, farmer",
+    )
+    location: str = Field(..., description="Location where the transaction occurred")
+    notes: str = Field(default="", description="Optional notes about the transaction")
+
+
+# ============================================================
+# Blockchain Helper Functions
+# ============================================================
+
+
+def _compute_block_hash(previous_hash: str, timestamp: str, data: dict) -> str:
+    """Compute SHA-256 hash for a blockchain block."""
+    block_string = previous_hash + timestamp + json.dumps(data, sort_keys=True)
+    return hashlib.sha256(block_string.encode()).hexdigest()
+
+
+def _get_blockchain(qr_code_id: str) -> list[dict]:
+    """Get or initialize the blockchain for a seed batch."""
+    batch = seed_registry.get(qr_code_id)
+    if batch is None:
+        return []
+    if "blockchain" not in batch:
+        # Initialize genesis block from the existing supply chain
+        genesis_data = {
+            "transaction_type": "genesis",
+            "actor_name": batch.get("manufacturer", "Unknown"),
+            "actor_role": "manufacturer",
+            "location": "Beej Suraksha Platform",
+            "notes": "Genesis block — seed batch registered on platform",
+            "seed_variety": batch.get("seed_variety", ""),
+            "batch_number": batch.get("batch_number", ""),
+        }
+        genesis_timestamp = batch.get(
+            "registered_at", datetime.now(timezone.utc).isoformat()
+        )
+        genesis_hash = _compute_block_hash("0" * 64, genesis_timestamp, genesis_data)
+        batch["blockchain"] = [
+            {
+                "block_number": 0,
+                "timestamp": genesis_timestamp,
+                "previous_hash": "0" * 64,
+                "hash": genesis_hash,
+                "data": genesis_data,
+            }
+        ]
+    return batch["blockchain"]
+
+
+def _verify_chain_integrity(blockchain: list[dict]) -> tuple[bool, list[str]]:
+    """Verify the integrity of a blockchain by recalculating all hashes."""
+    issues: list[str] = []
+    if not blockchain:
+        return True, []
+
+    # Verify genesis block
+    genesis = blockchain[0]
+    expected_genesis_hash = _compute_block_hash(
+        genesis["previous_hash"], genesis["timestamp"], genesis["data"]
+    )
+    if genesis["hash"] != expected_genesis_hash:
+        issues.append(f"Block 0 (genesis): hash mismatch — possible tampering detected")
+
+    # Verify subsequent blocks
+    for i in range(1, len(blockchain)):
+        block = blockchain[i]
+        prev_block = blockchain[i - 1]
+
+        # Check previous_hash linkage
+        if block["previous_hash"] != prev_block["hash"]:
+            issues.append(
+                f"Block {i}: previous_hash does not match hash of block {i - 1} — chain broken"
+            )
+
+        # Recalculate hash
+        expected_hash = _compute_block_hash(
+            block["previous_hash"], block["timestamp"], block["data"]
+        )
+        if block["hash"] != expected_hash:
+            issues.append(f"Block {i}: hash mismatch — possible tampering detected")
+
+    return len(issues) == 0, issues
+
+
+# ============================================================
+# Blockchain Supply Chain Endpoints
+# ============================================================
+
+
+@app.post("/blockchain/add-transaction")
+async def add_blockchain_transaction(req: BlockchainTransactionRequest):
+    """Add a blockchain transaction to a seed's supply chain.
+
+    Creates a new block with SHA-256 hash linked to the previous block,
+    ensuring tamper-evident supply chain tracking from manufacturer to farmer.
+    """
+    valid_transaction_types = {
+        "manufactured",
+        "quality_checked",
+        "distributed",
+        "sold",
+        "delivered",
+    }
+    if req.transaction_type not in valid_transaction_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid transaction_type '{req.transaction_type}'. "
+            f"Must be one of: {sorted(valid_transaction_types)}",
+        )
+
+    valid_actor_roles = {"manufacturer", "distributor", "dealer", "farmer"}
+    if req.actor_role not in valid_actor_roles:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid actor_role '{req.actor_role}'. "
+            f"Must be one of: {sorted(valid_actor_roles)}",
+        )
+
+    batch = seed_registry.get(req.qr_code_id)
+    if batch is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Seed batch with QR code '{req.qr_code_id}' not found in registry.",
+        )
+
+    blockchain = _get_blockchain(req.qr_code_id)
+    previous_block = blockchain[-1]
+    previous_hash = previous_block["hash"]
+
+    timestamp = datetime.now(timezone.utc).isoformat()
+    data = {
+        "transaction_type": req.transaction_type,
+        "actor_name": req.actor_name,
+        "actor_role": req.actor_role,
+        "location": req.location,
+        "notes": req.notes,
+    }
+
+    block_hash = _compute_block_hash(previous_hash, timestamp, data)
+    new_block = {
+        "block_number": len(blockchain),
+        "timestamp": timestamp,
+        "previous_hash": previous_hash,
+        "hash": block_hash,
+        "data": data,
+    }
+    blockchain.append(new_block)
+
+    # Also append to the legacy supply_chain list for backward compatibility
+    batch.setdefault("supply_chain", []).append(
+        {
+            "checkpoint": req.transaction_type,
+            "location": req.location,
+            "timestamp": timestamp,
+            "verified": True,
+            "actor": req.actor_name,
+            "actor_role": req.actor_role,
+        }
+    )
+
+    is_valid, issues = _verify_chain_integrity(blockchain)
+
+    return {
+        "transaction": new_block,
+        "chain_length": len(blockchain),
+        "chain_integrity": {
+            "is_valid": is_valid,
+            "issues": issues,
+        },
+        "qr_code_id": req.qr_code_id,
+    }
+
+
+@app.get("/blockchain/verify-chain/{qr_code_id}")
+async def verify_blockchain_chain(qr_code_id: str):
+    """Verify the integrity of a seed's supply chain blockchain.
+
+    Recalculates all SHA-256 hashes and checks chain linkage to detect
+    any tampering or data corruption in the supply chain history.
+    """
+    batch = seed_registry.get(qr_code_id)
+    if batch is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Seed batch with QR code '{qr_code_id}' not found in registry.",
+        )
+
+    blockchain = _get_blockchain(qr_code_id)
+    is_valid, issues = _verify_chain_integrity(blockchain)
+
+    return {
+        "qr_code_id": qr_code_id,
+        "chain_valid": is_valid,
+        "total_blocks": len(blockchain),
+        "tampering_detected": len(issues) > 0,
+        "issues": issues,
+        "transaction_history": blockchain,
+    }
+
+
+@app.get("/blockchain/trace/{qr_code_id}")
+async def trace_seed_journey(qr_code_id: str):
+    """Full traceability from manufacturer to farmer.
+
+    Returns the complete journey of a seed batch through the supply chain
+    with visualization-ready data including timeline, actors, and locations.
+    """
+    batch = seed_registry.get(qr_code_id)
+    if batch is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Seed batch with QR code '{qr_code_id}' not found in registry.",
+        )
+
+    blockchain = _get_blockchain(qr_code_id)
+    is_valid, issues = _verify_chain_integrity(blockchain)
+
+    # Build journey visualization data
+    journey_steps: list[dict] = []
+    actor_set: set[str] = set()
+    location_set: set[str] = set()
+
+    for block in blockchain:
+        data = block["data"]
+        step = {
+            "step_number": block["block_number"],
+            "timestamp": block["timestamp"],
+            "transaction_type": data.get("transaction_type", "unknown"),
+            "actor_name": data.get("actor_name", "Unknown"),
+            "actor_role": data.get("actor_role", "unknown"),
+            "location": data.get("location", "Unknown"),
+            "notes": data.get("notes", ""),
+            "block_hash": block["hash"][:16] + "...",
+            "verified": is_valid,
+        }
+        journey_steps.append(step)
+        actor_set.add(data.get("actor_name", "Unknown"))
+        location_set.add(data.get("location", "Unknown"))
+
+    # Determine current status based on last transaction
+    last_transaction = (
+        blockchain[-1]["data"].get("transaction_type", "unknown")
+        if blockchain
+        else "unknown"
+    )
+    status_map = {
+        "genesis": "Registered on platform",
+        "manufactured": "At manufacturer",
+        "quality_checked": "Quality verified",
+        "distributed": "In distribution",
+        "sold": "Sold to dealer/farmer",
+        "delivered": "Delivered to end user",
+    }
+    current_status = status_map.get(last_transaction, "Unknown")
+
+    # Compute journey duration
+    if len(blockchain) >= 2:
+        first_ts = blockchain[0]["timestamp"]
+        last_ts = blockchain[-1]["timestamp"]
+        try:
+            first_dt = datetime.fromisoformat(first_ts)
+            last_dt = datetime.fromisoformat(last_ts)
+            duration_hours = round((last_dt - first_dt).total_seconds() / 3600, 1)
+        except (ValueError, TypeError):
+            duration_hours = 0.0
+    else:
+        duration_hours = 0.0
+
+    return {
+        "qr_code_id": qr_code_id,
+        "seed_variety": batch.get("seed_variety", "Unknown"),
+        "batch_number": batch.get("batch_number", "Unknown"),
+        "manufacturer": batch.get("manufacturer", "Unknown"),
+        "current_status": current_status,
+        "chain_integrity": {
+            "is_valid": is_valid,
+            "tampering_detected": len(issues) > 0,
+            "issues": issues,
+        },
+        "journey": {
+            "total_steps": len(journey_steps),
+            "duration_hours": duration_hours,
+            "unique_actors": sorted(actor_set),
+            "unique_locations": sorted(location_set),
+            "steps": journey_steps,
+        },
     }
 
 
