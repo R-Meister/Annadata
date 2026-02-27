@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Optional
 import uuid
 
+import numpy as np
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -462,6 +463,637 @@ REGION_RISK: dict[str, dict[str, float]] = {
 }
 
 # ============================================================
+# Pesticide Shop Database (simulated)
+# ============================================================
+
+PESTICIDE_SHOPS: list[dict] = [
+    {
+        "name": "Kisan Agro Centre",
+        "address": "NH-44, Karnal, Haryana",
+        "lat": 29.6857,
+        "lon": 76.9905,
+        "phone": "+91-184-2250100",
+        "rating": 4.5,
+        "products": {
+            "Propiconazole 25% EC": 520,
+            "Mancozeb 75% WP": 380,
+            "Carbendazim 50% WP": 290,
+            "Sulfur 80% WP": 210,
+            "Neem Oil (1L)": 350,
+            "Tricyclazole 75% WP": 680,
+        },
+    },
+    {
+        "name": "Bharat Krishi Seva Kendra",
+        "address": "GT Road, Ludhiana, Punjab",
+        "lat": 30.9010,
+        "lon": 75.8573,
+        "phone": "+91-161-2401234",
+        "rating": 4.3,
+        "products": {
+            "Propiconazole 25% EC": 510,
+            "Mancozeb 75% WP": 370,
+            "Streptocycline": 180,
+            "Copper Oxychloride": 310,
+            "Hexaconazole 5% EC": 450,
+            "Metalaxyl 35% WS": 620,
+        },
+    },
+    {
+        "name": "Shri Ganesh Pesticides",
+        "address": "Mandi Road, Indore, Madhya Pradesh",
+        "lat": 22.7196,
+        "lon": 75.8577,
+        "phone": "+91-731-2543210",
+        "rating": 4.1,
+        "products": {
+            "Carbendazim 50% WP": 280,
+            "Mancozeb 75% WP": 390,
+            "Propiconazole 25% EC": 540,
+            "Thiram 75% WP": 250,
+            "Trichoderma viride (1kg)": 320,
+            "Neem Oil (1L)": 340,
+        },
+    },
+    {
+        "name": "Jai Kisan Agro Store",
+        "address": "Station Road, Nagpur, Maharashtra",
+        "lat": 21.1458,
+        "lon": 79.0882,
+        "phone": "+91-712-2720456",
+        "rating": 4.4,
+        "products": {
+            "Carbendazim 50% WP": 300,
+            "Copper Oxychloride": 320,
+            "Streptocycline": 175,
+            "Mancozeb 75% WP": 395,
+            "Propiconazole 25% EC": 530,
+            "Thiophanate-methyl": 470,
+        },
+    },
+    {
+        "name": "Patel Agri Inputs",
+        "address": "Ashram Road, Ahmedabad, Gujarat",
+        "lat": 23.0225,
+        "lon": 72.5714,
+        "phone": "+91-79-26580012",
+        "rating": 4.6,
+        "products": {
+            "Mancozeb 75% WP": 360,
+            "Sulfur 80% WP": 200,
+            "Tricyclazole 75% WP": 670,
+            "Validamycin 3% SL": 540,
+            "Zineb 75% WP": 310,
+            "Neem Oil (1L)": 360,
+        },
+    },
+    {
+        "name": "Annapurna Seeds & Chemicals",
+        "address": "Kanpur Road, Lucknow, Uttar Pradesh",
+        "lat": 26.8467,
+        "lon": 80.9462,
+        "phone": "+91-522-2638900",
+        "rating": 4.2,
+        "products": {
+            "Propiconazole 25% EC": 530,
+            "Carbendazim 50% WP": 295,
+            "Triadimefon 25% WP": 480,
+            "Thiram 75% WP": 245,
+            "Trichoderma viride (1kg)": 310,
+            "Isoprothiolane 40 EC": 590,
+        },
+    },
+    {
+        "name": "Sri Lakshmi Agro",
+        "address": "MG Road, Vijayawada, Andhra Pradesh",
+        "lat": 16.5062,
+        "lon": 80.6480,
+        "phone": "+91-866-2578100",
+        "rating": 4.0,
+        "products": {
+            "Tricyclazole 75% WP": 690,
+            "Isoprothiolane 40 EC": 580,
+            "Hexaconazole 5% EC": 440,
+            "Pseudomonas fluorescens (1kg)": 400,
+            "Edifenphos 50 EC": 520,
+            "Copper Oxychloride": 305,
+        },
+    },
+    {
+        "name": "Karnataka Agri Mart",
+        "address": "JC Road, Bengaluru, Karnataka",
+        "lat": 12.9716,
+        "lon": 77.5946,
+        "phone": "+91-80-22870034",
+        "rating": 4.7,
+        "products": {
+            "Mancozeb 75% WP": 375,
+            "Carbendazim 50% WP": 285,
+            "Metalaxyl 35% WS": 630,
+            "Ridomil MZ": 710,
+            "Neem Oil (1L)": 330,
+            "Sulfur 80% WP": 195,
+        },
+    },
+    {
+        "name": "Tamil Nadu Pesticides Depot",
+        "address": "Anna Salai, Chennai, Tamil Nadu",
+        "lat": 13.0827,
+        "lon": 80.2707,
+        "phone": "+91-44-28520067",
+        "rating": 4.3,
+        "products": {
+            "Tricyclazole 75% WP": 700,
+            "Mancozeb 75% WP": 385,
+            "Carbendazim 50% WP": 275,
+            "Pseudomonas fluorescens (1kg)": 390,
+            "Validamycin 3% SL": 550,
+            "Copper Oxychloride": 315,
+        },
+    },
+    {
+        "name": "Rajasthan Krishi Udyog",
+        "address": "Tonk Road, Jaipur, Rajasthan",
+        "lat": 26.9124,
+        "lon": 75.7873,
+        "phone": "+91-141-2550890",
+        "rating": 3.9,
+        "products": {
+            "Propiconazole 25% EC": 545,
+            "Sulfur 80% WP": 215,
+            "Mancozeb 75% WP": 400,
+            "Zineb 75% WP": 320,
+            "Neem Oil (1L)": 370,
+            "Thiram 75% WP": 260,
+        },
+    },
+    {
+        "name": "Bengal Agro Services",
+        "address": "Jessore Road, Kolkata, West Bengal",
+        "lat": 22.5726,
+        "lon": 88.3639,
+        "phone": "+91-33-25560078",
+        "rating": 4.1,
+        "products": {
+            "Tricyclazole 75% WP": 685,
+            "Isoprothiolane 40 EC": 575,
+            "Mancozeb 75% WP": 365,
+            "Edifenphos 50 EC": 515,
+            "Hexaconazole 5% EC": 455,
+            "Neem Oil (1L)": 345,
+        },
+    },
+    {
+        "name": "Punjab Agri Solutions",
+        "address": "Mall Road, Amritsar, Punjab",
+        "lat": 31.6340,
+        "lon": 74.8723,
+        "phone": "+91-183-2563200",
+        "rating": 4.4,
+        "products": {
+            "Propiconazole 25% EC": 505,
+            "Triadimefon 25% WP": 475,
+            "Carbendazim 50% WP": 270,
+            "Streptocycline": 170,
+            "Trichoderma viride (1kg)": 305,
+            "Sulfur 80% WP": 205,
+        },
+    },
+    {
+        "name": "Deccan Agri Hub",
+        "address": "Tilak Road, Pune, Maharashtra",
+        "lat": 18.5204,
+        "lon": 73.8567,
+        "phone": "+91-20-24450189",
+        "rating": 4.5,
+        "products": {
+            "Carbendazim 50% WP": 310,
+            "Mancozeb 75% WP": 385,
+            "Copper Oxychloride": 330,
+            "Thiophanate-methyl": 465,
+            "Neem Oil (1L)": 355,
+            "Trichoderma viride (1kg)": 330,
+        },
+    },
+    {
+        "name": "Madhya Bharat Kisan Store",
+        "address": "AB Road, Bhopal, Madhya Pradesh",
+        "lat": 23.2599,
+        "lon": 77.4126,
+        "phone": "+91-755-2770345",
+        "rating": 4.0,
+        "products": {
+            "Propiconazole 25% EC": 525,
+            "Thiram 75% WP": 240,
+            "Metalaxyl 35% WS": 615,
+            "Zineb 75% WP": 305,
+            "Carbendazim 50% WP": 285,
+            "Validamycin 3% SL": 535,
+        },
+    },
+    {
+        "name": "Telangana Seeds & Pesticides",
+        "address": "Begumpet, Hyderabad, Telangana",
+        "lat": 17.3850,
+        "lon": 78.4867,
+        "phone": "+91-40-27760023",
+        "rating": 4.2,
+        "products": {
+            "Tricyclazole 75% WP": 695,
+            "Hexaconazole 5% EC": 445,
+            "Isoprothiolane 40 EC": 585,
+            "Mancozeb 75% WP": 370,
+            "Pseudomonas fluorescens (1kg)": 410,
+            "Edifenphos 50 EC": 525,
+        },
+    },
+    {
+        "name": "Bihar Kisan Seva",
+        "address": "Bailey Road, Patna, Bihar",
+        "lat": 25.6093,
+        "lon": 85.1376,
+        "phone": "+91-612-2230056",
+        "rating": 3.8,
+        "products": {
+            "Mancozeb 75% WP": 395,
+            "Carbendazim 50% WP": 300,
+            "Tricyclazole 75% WP": 710,
+            "Neem Oil (1L)": 335,
+            "Propiconazole 25% EC": 550,
+            "Trichoderma viride (1kg)": 315,
+        },
+    },
+]
+
+# Mapping from disease treatment keywords to product names in the shop database
+DISEASE_PRODUCT_MAP: dict[str, list[str]] = {
+    "Leaf Rust": ["Propiconazole 25% EC", "Neem Oil (1L)"],
+    "Powdery Mildew": ["Sulfur 80% WP", "Neem Oil (1L)"],
+    "Yellow Rust": [
+        "Propiconazole 25% EC",
+        "Triadimefon 25% WP",
+        "Trichoderma viride (1kg)",
+    ],
+    "Karnal Bunt": ["Thiram 75% WP", "Trichoderma viride (1kg)"],
+    "Blast": [
+        "Tricyclazole 75% WP",
+        "Isoprothiolane 40 EC",
+        "Pseudomonas fluorescens (1kg)",
+    ],
+    "Bacterial Leaf Blight": ["Streptocycline", "Copper Oxychloride", "Neem Oil (1L)"],
+    "Sheath Blight": [
+        "Hexaconazole 5% EC",
+        "Validamycin 3% SL",
+        "Trichoderma viride (1kg)",
+    ],
+    "Brown Spot": [
+        "Mancozeb 75% WP",
+        "Edifenphos 50 EC",
+        "Pseudomonas fluorescens (1kg)",
+    ],
+    "Bacterial Blight": [
+        "Streptocycline",
+        "Copper Oxychloride",
+        "Pseudomonas fluorescens (1kg)",
+    ],
+    "Fusarium Wilt": [
+        "Carbendazim 50% WP",
+        "Thiophanate-methyl",
+        "Trichoderma viride (1kg)",
+    ],
+    "Grey Mildew": ["Carbendazim 50% WP", "Mancozeb 75% WP", "Sulfur 80% WP"],
+    "Northern Leaf Blight": [
+        "Mancozeb 75% WP",
+        "Zineb 75% WP",
+        "Trichoderma viride (1kg)",
+    ],
+    "Maydis Leaf Blight": ["Zineb 75% WP", "Mancozeb 75% WP"],
+    "Downy Mildew": ["Metalaxyl 35% WS", "Ridomil MZ"],
+    "Stalk Rot": ["Carbendazim 50% WP", "Trichoderma viride (1kg)"],
+    "Red Rot": ["Carbendazim 50% WP", "Trichoderma viride (1kg)"],
+    "Smut": ["Triadimefon 25% WP", "Trichoderma viride (1kg)"],
+    "Wilt": ["Carbendazim 50% WP", "Copper Oxychloride", "Trichoderma viride (1kg)"],
+}
+
+# ============================================================
+# Disease-to-Protein Engineering Map (simulated research data)
+# ============================================================
+
+DISEASE_PROTEIN_MAP: dict[str, dict] = {
+    "Leaf Rust": {
+        "pathogen_type": "Fungus",
+        "target_proteins": [
+            {
+                "gene": "Lr34",
+                "protein": "ABC transporter protein",
+                "function": "Multi-pathogen resistance including leaf rust, stripe rust, and powdery mildew",
+            },
+            {
+                "gene": "Lr21",
+                "protein": "NBS-LRR resistance protein",
+                "function": "Race-specific resistance to Puccinia triticina",
+            },
+        ],
+        "research_status": "Advanced — Lr34 is well-characterized and deployed in multiple wheat varieties worldwide",
+        "engineering_approach": "CRISPR-Cas9 editing of susceptibility genes; overexpression of Lr34 orthologs",
+    },
+    "Powdery Mildew": {
+        "pathogen_type": "Fungus",
+        "target_proteins": [
+            {
+                "gene": "Pm3",
+                "protein": "NBS-LRR immune receptor",
+                "function": "Recognition of powdery mildew effector proteins",
+            },
+            {
+                "gene": "MLO",
+                "protein": "MLO transmembrane protein (loss-of-function)",
+                "function": "Broad-spectrum resistance when knocked out",
+            },
+        ],
+        "research_status": "Advanced — mlo-based resistance successfully deployed in barley and being adapted for wheat",
+        "engineering_approach": "Targeted knockout of MLO homologs via CRISPR; stacking Pm3 alleles for broad resistance",
+    },
+    "Yellow Rust": {
+        "pathogen_type": "Fungus",
+        "target_proteins": [
+            {
+                "gene": "Yr15",
+                "protein": "Tandem kinase-pseudokinase protein (WTK1)",
+                "function": "Broad-spectrum resistance to stripe rust races",
+            },
+            {
+                "gene": "Yr36",
+                "protein": "Wheat kinase START protein (WKS1)",
+                "function": "Temperature-dependent stripe rust resistance",
+            },
+        ],
+        "research_status": "Active research — Yr15 recently cloned and showing broad resistance spectrum",
+        "engineering_approach": "Introgression of Yr15 via marker-assisted selection; protein engineering of WKS1 for temperature-stable resistance",
+    },
+    "Karnal Bunt": {
+        "pathogen_type": "Fungus",
+        "target_proteins": [
+            {
+                "gene": "TaWRKY76",
+                "protein": "WRKY transcription factor",
+                "function": "Regulation of defense pathways against Tilletia indica",
+            },
+            {
+                "gene": "TaPR1",
+                "protein": "Pathogenesis-related protein 1",
+                "function": "Antifungal activity in wheat spikes",
+            },
+        ],
+        "research_status": "Early research — QTLs identified but no single major resistance gene cloned yet",
+        "engineering_approach": "Overexpression of defense-related transcription factors; engineering enhanced PR protein variants",
+    },
+    "Blast": {
+        "pathogen_type": "Fungus",
+        "target_proteins": [
+            {
+                "gene": "Pi-ta",
+                "protein": "NBS-LRR cytoplasmic receptor",
+                "function": "Direct recognition of Magnaporthe oryzae AVR-Pita effector",
+            },
+            {
+                "gene": "Pi9",
+                "protein": "NBS-LRR resistance protein",
+                "function": "Broad-spectrum blast resistance",
+            },
+            {
+                "gene": "Pigm",
+                "protein": "Paired NLR immune receptors (PigmR/PigmS)",
+                "function": "Balanced broad-spectrum resistance without yield penalty",
+            },
+        ],
+        "research_status": "Advanced — Pi-ta and Pigm are well-characterized; Pigm deployed in Chinese rice varieties",
+        "engineering_approach": "Pyramiding Pi-ta, Pi9, and Pigm via molecular breeding; engineering enhanced NLR receptor variants",
+    },
+    "Bacterial Leaf Blight": {
+        "pathogen_type": "Bacterium",
+        "target_proteins": [
+            {
+                "gene": "Xa21",
+                "protein": "Receptor-like kinase (RLK)",
+                "function": "Pattern recognition receptor for Xanthomonas oryzae",
+            },
+            {
+                "gene": "Xa13 (loss-of-function)",
+                "protein": "SWEET sugar transporter",
+                "function": "Resistance by blocking pathogen sugar access when mutated",
+            },
+        ],
+        "research_status": "Advanced — Xa21 is a landmark gene in plant immunity; SWEET engineering is cutting-edge",
+        "engineering_approach": "CRISPR-based editing of SWEET gene promoters to prevent TAL effector binding; Xa21 transfer to susceptible varieties",
+    },
+    "Sheath Blight": {
+        "pathogen_type": "Fungus",
+        "target_proteins": [
+            {
+                "gene": "OsWRKY30",
+                "protein": "WRKY transcription factor",
+                "function": "Positive regulator of defense against Rhizoctonia solani",
+            },
+            {
+                "gene": "OsCHI11",
+                "protein": "Chitinase class I",
+                "function": "Degradation of fungal cell wall chitin",
+            },
+        ],
+        "research_status": "Moderate — no major R-gene identified; transgenic approaches showing promise",
+        "engineering_approach": "Overexpression of chitinase genes; engineering synthetic antimicrobial peptides targeting Rhizoctonia",
+    },
+    "Brown Spot": {
+        "pathogen_type": "Fungus",
+        "target_proteins": [
+            {
+                "gene": "OsNPR1",
+                "protein": "NPR1 regulatory protein",
+                "function": "Master regulator of systemic acquired resistance (SAR)",
+            },
+            {
+                "gene": "OsPR10",
+                "protein": "Pathogenesis-related protein 10",
+                "function": "Ribonuclease activity against fungal pathogens",
+            },
+        ],
+        "research_status": "Moderate — NPR1 overexpression shows enhanced resistance in transgenic lines",
+        "engineering_approach": "Engineering enhanced NPR1 variants for stronger SAR activation; combining with silicon uptake genes",
+    },
+    "Bacterial Blight": {
+        "pathogen_type": "Bacterium",
+        "target_proteins": [
+            {
+                "gene": "GhMPK3",
+                "protein": "Mitogen-activated protein kinase 3",
+                "function": "Signal transduction in cotton defense against Xanthomonas",
+            },
+            {
+                "gene": "GhWRKY25",
+                "protein": "WRKY transcription factor",
+                "function": "Positive regulator of immune response in cotton",
+            },
+        ],
+        "research_status": "Early-moderate — defense signaling pathways being mapped in cotton",
+        "engineering_approach": "Overexpression of defense kinase cascades; engineering enhanced pathogen recognition receptors",
+    },
+    "Fusarium Wilt": {
+        "pathogen_type": "Fungus",
+        "target_proteins": [
+            {
+                "gene": "Fov1 (candidate)",
+                "protein": "NBS-LRR resistance protein",
+                "function": "Candidate resistance gene for Fusarium oxysporum f. sp. vasinfectum",
+            },
+            {
+                "gene": "GhERF1",
+                "protein": "Ethylene response factor 1",
+                "function": "Activation of defense genes in root vascular tissue",
+            },
+        ],
+        "research_status": "Active research — resistance QTLs mapped; gene stacking approaches being tested",
+        "engineering_approach": "Enhancing root defense through ERF transcription factor engineering; CRISPR-based susceptibility gene knockouts",
+    },
+    "Grey Mildew": {
+        "pathogen_type": "Fungus",
+        "target_proteins": [
+            {
+                "gene": "GhPR5",
+                "protein": "Thaumatin-like protein",
+                "function": "Antifungal activity against Ramularia areola",
+            },
+            {
+                "gene": "GhNPR1",
+                "protein": "NPR1 transcriptional co-activator",
+                "function": "Broad-spectrum defense activation in cotton",
+            },
+        ],
+        "research_status": "Early — limited molecular studies; focus on conventional breeding for resistance",
+        "engineering_approach": "Transfer of enhanced NPR1 variants; engineering thaumatin-like proteins with improved antifungal spectrum",
+    },
+    "Northern Leaf Blight": {
+        "pathogen_type": "Fungus",
+        "target_proteins": [
+            {
+                "gene": "Ht1",
+                "protein": "NBS-LRR chloroplast-targeted protein",
+                "function": "Race-specific resistance to Exserohilum turcicum",
+            },
+            {
+                "gene": "ZmRXO1",
+                "protein": "NBS-LRR resistance protein",
+                "function": "Non-host resistance providing broad protection",
+            },
+        ],
+        "research_status": "Advanced — Ht1, Ht2, Ht3 genes well-characterized; gene pyramiding in progress",
+        "engineering_approach": "Stacking multiple Ht resistance genes; engineering enhanced NLR receptors for broader race recognition",
+    },
+    "Maydis Leaf Blight": {
+        "pathogen_type": "Fungus",
+        "target_proteins": [
+            {
+                "gene": "ZmLOX3 (loss-of-function)",
+                "protein": "Lipoxygenase 3",
+                "function": "Susceptibility factor — knockout enhances resistance",
+            },
+            {
+                "gene": "ZmPR4",
+                "protein": "Pathogenesis-related protein 4 (chitinase)",
+                "function": "Antifungal defense against Bipolaris maydis",
+            },
+        ],
+        "research_status": "Moderate — T-cytoplasm vulnerability (historical) now avoided; polygenic resistance being enhanced",
+        "engineering_approach": "CRISPR knockout of ZmLOX3; overexpression of antifungal PR proteins",
+    },
+    "Downy Mildew": {
+        "pathogen_type": "Oomycete",
+        "target_proteins": [
+            {
+                "gene": "ZmRpp9",
+                "protein": "NBS-LRR resistance protein",
+                "function": "Major gene resistance against Peronosclerospora sorghi",
+            },
+            {
+                "gene": "ZmPAL",
+                "protein": "Phenylalanine ammonia-lyase",
+                "function": "Key enzyme in phenylpropanoid defense pathway",
+            },
+        ],
+        "research_status": "Moderate — Rpp9 provides strong resistance; additional QTLs being mapped",
+        "engineering_approach": "Marker-assisted pyramiding of Rpp9 with minor QTLs; enhancing phenylpropanoid pathway flux",
+    },
+    "Stalk Rot": {
+        "pathogen_type": "Fungus",
+        "target_proteins": [
+            {
+                "gene": "ZmCCT (qRfg1)",
+                "protein": "CCT domain transcription factor",
+                "function": "Major QTL for Gibberella stalk rot resistance in maize",
+            },
+            {
+                "gene": "ZmAuxRP1",
+                "protein": "Auxin-regulated protein",
+                "function": "Defense activation in stalk tissues",
+            },
+        ],
+        "research_status": "Active research — qRfg1 cloned and validated; auxin signaling role being explored",
+        "engineering_approach": "Introgression of qRfg1 via marker-assisted selection; engineering stalk-specific defense activation",
+    },
+    "Red Rot": {
+        "pathogen_type": "Fungus",
+        "target_proteins": [
+            {
+                "gene": "ScCHI",
+                "protein": "Chitinase",
+                "function": "Cell wall degrading enzyme targeting Colletotrichum falcatum",
+            },
+            {
+                "gene": "ScNBS-LRR (candidate)",
+                "protein": "NBS-LRR resistance gene family",
+                "function": "Pathogen recognition in sugarcane",
+            },
+        ],
+        "research_status": "Early-moderate — sugarcane's complex polyploid genome complicates gene identification",
+        "engineering_approach": "Transgenic overexpression of chitinase and glucanase genes; RNAi-based silencing of pathogen virulence factors",
+    },
+    "Smut": {
+        "pathogen_type": "Fungus",
+        "target_proteins": [
+            {
+                "gene": "ScR1MYB1",
+                "protein": "MYB transcription factor",
+                "function": "Regulation of phenylpropanoid defense pathway in sugarcane",
+            },
+            {
+                "gene": "ScGLP",
+                "protein": "Germin-like protein",
+                "function": "Oxalate oxidase activity generating H2O2 for defense",
+            },
+        ],
+        "research_status": "Early — molecular basis of smut resistance poorly understood due to genome complexity",
+        "engineering_approach": "Engineering enhanced oxidative burst response; overexpression of defense-related transcription factors",
+    },
+    "Wilt": {
+        "pathogen_type": "Fungus",
+        "target_proteins": [
+            {
+                "gene": "ScERF1",
+                "protein": "Ethylene response factor",
+                "function": "Activation of defense genes in sugarcane vascular tissue",
+            },
+            {
+                "gene": "ScPR1",
+                "protein": "Pathogenesis-related protein 1",
+                "function": "Systemic acquired resistance marker in sugarcane",
+            },
+        ],
+        "research_status": "Early — limited functional genomics data for Fusarium sacchari resistance",
+        "engineering_approach": "Engineering vascular-specific defense expression; CRISPR-based approaches pending improved sugarcane transformation",
+    },
+}
+
+# ============================================================
 # In-memory detection history
 # ============================================================
 
@@ -561,6 +1193,70 @@ class HistoryEntry(BaseModel):
 class HistoryResponse(BaseModel):
     count: int
     detections: list[HistoryEntry]
+
+
+class NearbyShopsRequest(BaseModel):
+    latitude: float = Field(
+        ..., ge=-90, le=90, description="Latitude of the user's location"
+    )
+    longitude: float = Field(
+        ..., ge=-180, le=180, description="Longitude of the user's location"
+    )
+    disease_name: Optional[str] = Field(
+        None, description="Disease name to filter relevant pesticides"
+    )
+    crop: str = Field(
+        ..., description="Crop name (e.g. wheat, rice, cotton, maize, sugarcane)"
+    )
+
+
+class PesticideProduct(BaseModel):
+    name: str
+    price_inr: float
+    availability: bool = True
+
+
+class ShopResult(BaseModel):
+    name: str
+    address: str
+    distance_km: float
+    phone: str
+    rating: float
+    relevant_products: list[PesticideProduct]
+
+
+class NearbyShopsResponse(BaseModel):
+    query_location: dict
+    crop: str
+    disease_filter: Optional[str]
+    shops_found: int
+    shops: list[ShopResult]
+
+
+class ProteinEngineeringRequest(BaseModel):
+    disease_name: str = Field(..., description="Name of the crop disease")
+    crop: str = Field(..., description="Crop name")
+    pathogen_info: Optional[str] = Field(
+        None, description="Additional pathogen information"
+    )
+
+
+class TargetProtein(BaseModel):
+    gene: str
+    protein: str
+    function: str
+
+
+class ProteinEngineeringResponse(BaseModel):
+    disease_name: str
+    crop: str
+    pathogen: str
+    pathogen_type: str
+    target_proteins: list[TargetProtein]
+    research_status: str
+    engineering_approach: str
+    protein_engineering_service_link: str
+    message: str
 
 
 # ============================================================
@@ -681,6 +1377,34 @@ def _month_factor(disease: dict) -> float:
     if _current_month() in favourable:
         return 1.15
     return 0.90
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculate the Haversine distance in kilometres between two lat/lon points."""
+    r = 6371.0  # Earth radius in km
+    lat1_r, lon1_r, lat2_r, lon2_r = np.radians([lat1, lon1, lat2, lon2])
+    dlat = lat2_r - lat1_r
+    dlon = lon2_r - lon1_r
+    a = np.sin(dlat / 2) ** 2 + np.cos(lat1_r) * np.cos(lat2_r) * np.sin(dlon / 2) ** 2
+    c = 2 * np.arcsin(np.sqrt(a))
+    return float(round(r * c, 2))
+
+
+def _find_disease_in_kb(
+    disease_name: str, crop: Optional[str] = None
+) -> Optional[dict]:
+    """Look up a disease by name in the CROP_DISEASES knowledge base."""
+    search_name = disease_name.strip().lower()
+    crops_to_search = (
+        {crop.strip().lower(): CROP_DISEASES[crop.strip().lower()]}
+        if crop and crop.strip().lower() in CROP_DISEASES
+        else CROP_DISEASES
+    )
+    for _crop_key, diseases in crops_to_search.items():
+        for d in diseases:
+            if d["name"].lower() == search_name:
+                return d
+    return None
 
 
 # ============================================================
@@ -1026,6 +1750,166 @@ async def get_detection_history(
     ]
 
     return HistoryResponse(count=len(detections), detections=detections)
+
+
+@app.post("/nearby-shops", response_model=NearbyShopsResponse)
+async def find_nearby_shops(req: NearbyShopsRequest):
+    """Find nearby pesticide shops with prices relevant to a crop disease."""
+    crop_key = req.crop.strip().lower()
+    if crop_key not in CROP_DISEASES:
+        supported = ", ".join(sorted(CROP_DISEASES.keys()))
+        raise HTTPException(
+            status_code=400,
+            detail=f"Crop '{req.crop}' not found in knowledge base. Supported crops: {supported}",
+        )
+
+    # Determine which products are relevant for the disease
+    relevant_product_names: list[str] | None = None
+    disease_filter_name: str | None = None
+    if req.disease_name:
+        disease_filter_name = req.disease_name.strip()
+        # Try exact match first, then case-insensitive
+        relevant_product_names = DISEASE_PRODUCT_MAP.get(disease_filter_name)
+        if relevant_product_names is None:
+            for key, val in DISEASE_PRODUCT_MAP.items():
+                if key.lower() == disease_filter_name.lower():
+                    relevant_product_names = val
+                    disease_filter_name = key
+                    break
+        # Validate the disease exists for this crop
+        disease_record = _find_disease_in_kb(disease_filter_name, crop_key)
+        if disease_record is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Disease '{req.disease_name}' not found for crop '{crop_key}' in knowledge base.",
+            )
+
+    # Calculate distance from user to each shop and sort
+    shop_distances: list[tuple[float, dict]] = []
+    for shop in PESTICIDE_SHOPS:
+        dist = _haversine_km(req.latitude, req.longitude, shop["lat"], shop["lon"])
+        shop_distances.append((dist, shop))
+
+    shop_distances.sort(key=lambda x: x[0])
+
+    # Build response — return top 10 nearest shops
+    shop_results: list[ShopResult] = []
+    for dist, shop in shop_distances[:10]:
+        products: list[PesticideProduct] = []
+        if relevant_product_names is not None:
+            # Only show products relevant to the disease
+            for prod_name in relevant_product_names:
+                if prod_name in shop["products"]:
+                    products.append(
+                        PesticideProduct(
+                            name=prod_name,
+                            price_inr=shop["products"][prod_name],
+                            availability=True,
+                        )
+                    )
+                else:
+                    products.append(
+                        PesticideProduct(
+                            name=prod_name,
+                            price_inr=0,
+                            availability=False,
+                        )
+                    )
+        else:
+            # No disease filter — show all products
+            for prod_name, price in shop["products"].items():
+                products.append(
+                    PesticideProduct(name=prod_name, price_inr=price, availability=True)
+                )
+
+        shop_results.append(
+            ShopResult(
+                name=shop["name"],
+                address=shop["address"],
+                distance_km=dist,
+                phone=shop["phone"],
+                rating=shop["rating"],
+                relevant_products=products,
+            )
+        )
+
+    return NearbyShopsResponse(
+        query_location={"latitude": req.latitude, "longitude": req.longitude},
+        crop=crop_key,
+        disease_filter=disease_filter_name,
+        shops_found=len(shop_results),
+        shops=shop_results,
+    )
+
+
+@app.post("/protein-engineering-link", response_model=ProteinEngineeringResponse)
+async def protein_engineering_link(req: ProteinEngineeringRequest):
+    """Link a crop disease to protein engineering research for developing resistant varieties."""
+    crop_key = req.crop.strip().lower()
+    if crop_key not in CROP_DISEASES:
+        supported = ", ".join(sorted(CROP_DISEASES.keys()))
+        raise HTTPException(
+            status_code=400,
+            detail=f"Crop '{req.crop}' not found in knowledge base. Supported crops: {supported}",
+        )
+
+    # Look up disease in the knowledge base
+    disease_record = _find_disease_in_kb(req.disease_name, crop_key)
+    if disease_record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Disease '{req.disease_name}' not found for crop '{crop_key}' in knowledge base.",
+        )
+
+    pathogen = disease_record["scientific_name"]
+
+    # Look up protein engineering data
+    protein_data = DISEASE_PROTEIN_MAP.get(disease_record["name"])
+    if protein_data is None:
+        # Try case-insensitive lookup
+        for key, val in DISEASE_PROTEIN_MAP.items():
+            if key.lower() == disease_record["name"].lower():
+                protein_data = val
+                break
+
+    if protein_data is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No protein engineering data available for disease '{disease_record['name']}'.",
+        )
+
+    pathogen_type = protein_data["pathogen_type"]
+    target_proteins = [
+        TargetProtein(gene=tp["gene"], protein=tp["protein"], function=tp["function"])
+        for tp in protein_data["target_proteins"]
+    ]
+    research_status = protein_data["research_status"]
+    engineering_approach = protein_data["engineering_approach"]
+
+    # Build the primary target protein name for the message
+    primary_gene = protein_data["target_proteins"][0]["gene"]
+    primary_protein = protein_data["target_proteins"][0]["protein"]
+
+    protein_engineering_url = "http://localhost:8007"
+
+    message = (
+        f"This disease is caused by {pathogen_type} {pathogen}. "
+        f"Developing a resistant variety targeting {primary_gene} ({primary_protein}). "
+        f"Our Protein Engineering module can help design resistance proteins. "
+        f"Current status: {research_status}."
+    )
+
+    return ProteinEngineeringResponse(
+        disease_name=disease_record["name"],
+        crop=crop_key,
+        pathogen=pathogen,
+        pathogen_type=pathogen_type,
+        target_proteins=target_proteins,
+        research_status=research_status,
+        engineering_approach=engineering_approach,
+        protein_engineering_service_link=protein_engineering_url,
+        message=message,
+    )
 
 
 if __name__ == "__main__":
