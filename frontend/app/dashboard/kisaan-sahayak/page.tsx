@@ -166,6 +166,178 @@ export default function KisaanSahayakPage() {
           </Card>
         </div>
       </div>
+
+      {/* Multi-Agent AI Pipeline */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {/* Multi-Agent Pipeline */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Multi-Agent Pipeline</CardTitle>
+            <CardDescription>
+              Orchestrated analysis using multiple specialized AI agents
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-[var(--color-text-muted)]">
+              Submit a farm query and receive a comprehensive analysis
+              orchestrated across vision, weather, market, and memory agents.
+              Each agent contributes domain-specific insights that are
+              synthesized into a unified recommendation.
+            </p>
+            <ul className="mt-3 space-y-1.5 text-sm text-[var(--color-text-muted)]">
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Automated multi-agent orchestration pipeline
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Synthesized cross-domain recommendations
+              </li>
+            </ul>
+            <div className="mt-4">
+              <code className="rounded bg-[var(--color-background)] px-2 py-1 text-xs text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                POST /pipeline/analyze
+              </code>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Vision Agent */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Vision Agent</CardTitle>
+            <CardDescription>
+              Image-based crop and field analysis
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-[var(--color-text-muted)]">
+              Analyze field images using computer vision to detect crop health
+              status, growth stage, weed pressure, and visible nutrient
+              deficiencies. Supports satellite imagery and phone camera uploads.
+            </p>
+            <ul className="mt-3 space-y-1.5 text-sm text-[var(--color-text-muted)]">
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Multi-model image classification and segmentation
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Detects visual anomalies and stress indicators
+              </li>
+            </ul>
+            <div className="mt-4">
+              <code className="rounded bg-[var(--color-background)] px-2 py-1 text-xs text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                POST /agent/vision
+              </code>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Weather Agent */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Weather Agent</CardTitle>
+            <CardDescription>
+              Hyper-local weather intelligence for farming decisions
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-[var(--color-text-muted)]">
+              Provides localized weather forecasts, historical trends, and
+              agro-meteorological advisories tailored to your crop type and
+              growth stage. Includes frost, heatwave, and rainfall alerts.
+            </p>
+            <ul className="mt-3 space-y-1.5 text-sm text-[var(--color-text-muted)]">
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                7-day and seasonal forecast with confidence intervals
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Extreme weather early warning system
+              </li>
+            </ul>
+            <div className="mt-4">
+              <code className="rounded bg-[var(--color-background)] px-2 py-1 text-xs text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                GET /agent/weather
+              </code>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Market Agent */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Market Agent</CardTitle>
+            <CardDescription>
+              Real-time market prices and demand intelligence
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-[var(--color-text-muted)]">
+              Access live mandi prices, demand trends, and optimal selling
+              strategies. The market agent aggregates data from multiple mandis
+              and provides price forecasts to help time your sales.
+            </p>
+            <ul className="mt-3 space-y-1.5 text-sm text-[var(--color-text-muted)]">
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Multi-mandi price comparison and trend analysis
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Demand forecasting and sell-timing signals
+              </li>
+            </ul>
+            <div className="mt-4">
+              <code className="rounded bg-[var(--color-background)] px-2 py-1 text-xs text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                GET /agent/market
+              </code>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Memory Agent */}
+        <Card className="sm:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-base">Memory Agent</CardTitle>
+            <CardDescription>
+              Persistent farmer interaction history and context management
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-[var(--color-text-muted)]">
+              Logs all farmer interactions, recommendations, and outcomes to
+              build a persistent knowledge base. Retrieves historical context to
+              personalize future recommendations and track farming decisions over
+              time.
+            </p>
+            <ul className="mt-3 space-y-1.5 text-sm text-[var(--color-text-muted)]">
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Logs interactions with timestamps and context metadata
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Retrieves full interaction history per farmer
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Enables personalized, context-aware recommendations
+              </li>
+            </ul>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <code className="rounded bg-[var(--color-background)] px-2 py-1 text-xs text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                POST /agent/memory/log
+              </code>
+              <code className="rounded bg-[var(--color-background)] px-2 py-1 text-xs text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                GET /agent/memory/&#123;farmer_id&#125;
+              </code>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

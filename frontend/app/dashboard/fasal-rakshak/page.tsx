@@ -122,6 +122,83 @@ export default function FasalRakshakPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Extended Services */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        {/* Nearby Pesticide Shops */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Nearby Pesticide Shops</CardTitle>
+            <CardDescription>
+              Locate verified pesticide retailers near your farm
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-[var(--color-text-muted)]">
+              Find the nearest authorized pesticide dealers based on your
+              location. Results include shop name, distance, available products,
+              and contact information for quick procurement.
+            </p>
+            <ul className="mt-3 space-y-1.5 text-sm text-[var(--color-text-muted)]">
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                GPS-based proximity search for pesticide retailers
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Filters by product availability and certification status
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Returns distance, ratings, and contact details
+              </li>
+            </ul>
+            <div className="mt-4">
+              <code className="rounded bg-[var(--color-background)] px-2 py-1 text-xs text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                POST /nearby-shops
+              </code>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Protein Engineering Integration */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              Protein Engineering Integration
+            </CardTitle>
+            <CardDescription>
+              Bio-engineered protein-based pest control solutions
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-[var(--color-text-muted)]">
+              Access protein engineering data to explore bio-pesticide
+              alternatives. Links detected pathogens to engineered protein
+              sequences that can act as targeted biological control agents.
+            </p>
+            <ul className="mt-3 space-y-1.5 text-sm text-[var(--color-text-muted)]">
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Maps detected diseases to candidate bio-control proteins
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Provides protein structure and efficacy predictions
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Sustainable alternative to chemical pesticides
+              </li>
+            </ul>
+            <div className="mt-4">
+              <code className="rounded bg-[var(--color-background)] px-2 py-1 text-xs text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                POST /protein-engineering-link
+              </code>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

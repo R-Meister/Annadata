@@ -128,6 +128,86 @@ export default function JalShaktiPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Smart IoT and Optimization */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        {/* IoT Smart Valve Control */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">IoT Smart Valve Control</CardTitle>
+            <CardDescription>
+              Remote control and monitoring of field irrigation valves
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-[var(--color-text-muted)]">
+              Send commands to open or close IoT-connected irrigation valves
+              remotely. Monitor real-time valve status per plot including flow
+              rate, duration, and last activity timestamp.
+            </p>
+            <ul className="mt-3 space-y-1.5 text-sm text-[var(--color-text-muted)]">
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Open/close valves with configurable flow rate and duration
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Real-time valve status polling per plot
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Tracks water consumption and last-active timestamps
+              </li>
+            </ul>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <code className="rounded bg-[var(--color-background)] px-2 py-1 text-xs text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                POST /iot/valve-control
+              </code>
+              <code className="rounded bg-[var(--color-background)] px-2 py-1 text-xs text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                GET /iot/valve-status/&#123;plot_id&#125;
+              </code>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Quantum Multi-Field Optimization */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              Quantum Multi-Field Optimization
+            </CardTitle>
+            <CardDescription>
+              Optimize water distribution across multiple fields simultaneously
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-[var(--color-text-muted)]">
+              Uses quantum-inspired optimization algorithms to compute the best
+              water allocation strategy across all your plots, accounting for
+              crop water needs, soil types, and available water budget.
+            </p>
+            <ul className="mt-3 space-y-1.5 text-sm text-[var(--color-text-muted)]">
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Multi-objective optimization across fields and crops
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Accounts for water budget constraints and priority rankings
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Returns per-field allocation with predicted yield impact
+              </li>
+            </ul>
+            <div className="mt-4">
+              <code className="rounded bg-[var(--color-background)] px-2 py-1 text-xs text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                POST /quantum-optimize
+              </code>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

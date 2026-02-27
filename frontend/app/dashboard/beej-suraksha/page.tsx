@@ -255,6 +255,82 @@ export default function BeejSurakshaPage() {
           </Card>
         ))}
       </div>
+
+      {/* Blockchain Supply Chain */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Blockchain Supply Chain</CardTitle>
+          <CardDescription>
+            Immutable ledger for seed provenance and supply chain transparency
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-[var(--color-text-muted)]">
+            Track every seed batch from manufacturer to farmer on a
+            blockchain-backed ledger. Add supply chain transactions, verify the
+            integrity of the full chain for any QR code, and trace the complete
+            journey of a seed batch through all checkpoints.
+          </p>
+          <div className="mt-4 grid gap-4 sm:grid-cols-3">
+            <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] p-4">
+              <h4 className="text-sm font-medium text-[var(--color-text)]">
+                Add Transaction
+              </h4>
+              <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                Record a new supply chain event (production, dispatch, receipt)
+                with timestamp and actor details.
+              </p>
+              <div className="mt-3">
+                <code className="rounded bg-[var(--color-background)] px-2 py-1 text-xs text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                  POST /blockchain/add-transaction
+                </code>
+              </div>
+            </div>
+            <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] p-4">
+              <h4 className="text-sm font-medium text-[var(--color-text)]">
+                Verify Chain
+              </h4>
+              <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                Validate the integrity of the entire blockchain for a specific
+                QR code to detect any tampering or inconsistencies.
+              </p>
+              <div className="mt-3">
+                <code className="rounded bg-[var(--color-background)] px-2 py-1 text-xs text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                  GET /blockchain/verify-chain/&#123;qr_code_id&#125;
+                </code>
+              </div>
+            </div>
+            <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] p-4">
+              <h4 className="text-sm font-medium text-[var(--color-text)]">
+                Trace Seed Batch
+              </h4>
+              <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+                Retrieve the full provenance trail for a seed batch — every
+                handler, location, and timestamp from origin to delivery.
+              </p>
+              <div className="mt-3">
+                <code className="rounded bg-[var(--color-background)] px-2 py-1 text-xs text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                  GET /blockchain/trace/&#123;qr_code_id&#125;
+                </code>
+              </div>
+            </div>
+          </div>
+          <ul className="mt-4 space-y-1.5 text-sm text-[var(--color-text-muted)]">
+            <li className="flex items-start gap-2">
+              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+              Tamper-proof transaction history with cryptographic hashing
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+              End-to-end traceability from manufacturer to farmer
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+              Chain integrity verification to detect fraud or data corruption
+            </li>
+          </ul>
+        </CardContent>
+      </Card>
     </div>
   );
 }

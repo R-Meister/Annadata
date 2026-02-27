@@ -112,6 +112,81 @@ export default function SoilScanPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Advanced Analysis Endpoints */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        {/* Photo-Based Analysis */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Photo-Based Analysis</CardTitle>
+            <CardDescription>
+              Analyze soil properties from photo-derived color and texture data
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-[var(--color-text-muted)]">
+              Submit soil color in HSV format and texture classification to
+              receive ML-predicted soil properties including organic matter
+              content, moisture levels, and composition estimates.
+            </p>
+            <ul className="mt-3 space-y-1.5 text-sm text-[var(--color-text-muted)]">
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                HSV color space input for consistent soil color representation
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Texture classification (sandy, loamy, clay, silt)
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Returns predicted nutrient profile and soil health indicators
+              </li>
+            </ul>
+            <div className="mt-4">
+              <code className="rounded bg-[var(--color-background)] px-2 py-1 text-xs text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                POST /analyze-photo
+              </code>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Quantum ML Correlations */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Quantum ML Correlations</CardTitle>
+            <CardDescription>
+              Discover hidden correlations in soil data using quantum-inspired ML
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-[var(--color-text-muted)]">
+              Leverage quantum computing techniques to identify non-linear
+              correlations between soil parameters that classical methods may
+              miss, enabling more accurate soil health predictions.
+            </p>
+            <ul className="mt-3 space-y-1.5 text-sm text-[var(--color-text-muted)]">
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Quantum-inspired feature entanglement for multi-parameter analysis
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Identifies latent soil property relationships
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />
+                Correlation matrix with confidence scores
+              </li>
+            </ul>
+            <div className="mt-4">
+              <code className="rounded bg-[var(--color-background)] px-2 py-1 text-xs text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                POST /quantum-correlation
+              </code>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
