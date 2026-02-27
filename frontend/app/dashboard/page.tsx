@@ -9,7 +9,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 
 /* ------------------------------------------------------------------
-   Service catalogue – static data for the overview grid
+   Service catalogue - static data for the overview grid
    ------------------------------------------------------------------ */
 
 const services = [
@@ -24,14 +24,14 @@ const services = [
     name: "SoilScan AI",
     href: "/dashboard/soilscan",
     description:
-      "Satellite and lab-based soil health analysis with nutrient mapping and recommendations.",
+      "AI-powered soil health analysis with nutrient mapping and fertilizer recommendations.",
     borderColor: "border-l-amber-500",
   },
   {
     name: "Fasal Rakshak",
     href: "/dashboard/fasal-rakshak",
     description:
-      "AI-powered crop disease detection and integrated pest management recommendations.",
+      "Crop disease detection, pest management, and integrated remedy recommendations.",
     borderColor: "border-l-red-500",
   },
   {
@@ -45,22 +45,57 @@ const services = [
     name: "Harvest Shakti",
     href: "/dashboard/harvest-shakti",
     description:
-      "Harvest decision support with yield estimation, optimal timing, and market signals.",
+      "Harvest decision support with yield estimation, crop recommendation, and AI chatbot.",
     borderColor: "border-l-purple-500",
   },
   {
     name: "Kisaan Sahayak",
     href: "/dashboard/kisaan-sahayak",
     description:
-      "Multilingual AI assistant for government schemes, crop calendars, and weather advisories.",
+      "Multi-agent AI assistant with vision, verifier, weather, market, and memory agents.",
     borderColor: "border-l-orange-500",
+  },
+  {
+    name: "Protein Engineering",
+    href: "/dashboard/protein-engineering",
+    description:
+      "AI-powered crop protein engineering with climate profiling and trait analysis.",
+    borderColor: "border-l-teal-500",
+  },
+  {
+    name: "Kisan Credit Score",
+    href: "/dashboard/kisan-credit",
+    description:
+      "Farmer credit scoring based on yields, land productivity, weather risk, and market diversification.",
+    borderColor: "border-l-indigo-500",
+  },
+  {
+    name: "Harvest-to-Cart",
+    href: "/dashboard/harvest-to-cart",
+    description:
+      "Cold chain optimization, demand prediction, and farmer-retailer logistics.",
+    borderColor: "border-l-cyan-500",
+  },
+  {
+    name: "Beej Suraksha",
+    href: "/dashboard/beej-suraksha",
+    description:
+      "QR-based seed tracking, AI seed authenticity verification, and community reporting.",
+    borderColor: "border-l-lime-500",
+  },
+  {
+    name: "Mausam Chakra",
+    href: "/dashboard/mausam-chakra",
+    description:
+      "Hyper-local hour-by-hour weather forecasts with IoT station data fusion and crop advisories.",
+    borderColor: "border-l-sky-400",
   },
 ] as const;
 
 const quickStats = [
-  { label: "Active Services", value: "6" },
+  { label: "Active Services", value: "11" },
   { label: "Data Records", value: "1.1M+" },
-  { label: "ML Models", value: "8" },
+  { label: "ML Models", value: "15+" },
   { label: "Quantum Strategies", value: "3" },
 ] as const;
 
@@ -70,6 +105,11 @@ const recentActivity = [
   "Fasal Rakshak detected early blight in Nashik district",
   "Jal Shakti sensors calibrated for Rabi season",
   "Harvest Shakti yield model updated for wheat",
+  "Kisan Credit scored 150 farmers in Punjab cooperative",
+  "Harvest-to-Cart optimized 8 cold chain routes in UP",
+  "Beej Suraksha flagged counterfeit seed batch in MP",
+  "Mausam Chakra issued hailstorm alert for Nashik",
+  "Protein Engineering completed trait analysis for drought resistance",
 ] as const;
 
 /* ------------------------------------------------------------------

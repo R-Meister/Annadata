@@ -13,6 +13,11 @@ import {
   Settings,
   User,
   ChevronLeft,
+  Dna,
+  CreditCard,
+  Truck,
+  BadgeCheck,
+  CloudSun,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +35,11 @@ const navItems: NavItem[] = [
   { label: "Jal Shakti", href: "/dashboard/jal-shakti", icon: Droplets },
   { label: "Harvest Shakti", href: "/dashboard/harvest-shakti", icon: Wheat },
   { label: "Kisaan Sahayak", href: "/dashboard/kisaan-sahayak", icon: MessageCircle },
+  { label: "Protein Engineering", href: "/dashboard/protein-engineering", icon: Dna },
+  { label: "Kisan Credit", href: "/dashboard/kisan-credit", icon: CreditCard },
+  { label: "Harvest-to-Cart", href: "/dashboard/harvest-to-cart", icon: Truck },
+  { label: "Beej Suraksha", href: "/dashboard/beej-suraksha", icon: BadgeCheck },
+  { label: "Mausam Chakra", href: "/dashboard/mausam-chakra", icon: CloudSun },
 ];
 
 interface SidebarProps {

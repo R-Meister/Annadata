@@ -30,6 +30,26 @@ const nextConfig: NextConfig = {
         source: "/api/kisaan-sahayak/:path*",
         destination: `${process.env.NEXT_PUBLIC_KISAAN_SAHAYAK_URL || "http://localhost:8006"}/:path*`,
       },
+      {
+        source: "/api/protein-engineering/:path*",
+        destination: `${process.env.NEXT_PUBLIC_PROTEIN_ENGINEERING_URL || "http://localhost:8007"}/:path*`,
+      },
+      {
+        source: "/api/kisan-credit/:path*",
+        destination: `${process.env.NEXT_PUBLIC_KISAN_CREDIT_URL || "http://localhost:8008"}/:path*`,
+      },
+      {
+        source: "/api/harvest-to-cart/:path*",
+        destination: `${process.env.NEXT_PUBLIC_HARVEST_TO_CART_URL || "http://localhost:8009"}/:path*`,
+      },
+      {
+        source: "/api/beej-suraksha/:path*",
+        destination: `${process.env.NEXT_PUBLIC_BEEJ_SURAKSHA_URL || "http://localhost:8010"}/:path*`,
+      },
+      {
+        source: "/api/mausam-chakra/:path*",
+        destination: `${process.env.NEXT_PUBLIC_MAUSAM_CHAKRA_URL || "http://localhost:8011"}/:path*`,
+      },
     ];
   },
 };
