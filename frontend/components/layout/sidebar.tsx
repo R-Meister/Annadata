@@ -19,6 +19,9 @@ import {
   BadgeCheck,
   CloudSun,
   Fingerprint,
+  TrendingUp,
+  Leaf,
+  Bell,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
@@ -43,6 +46,9 @@ const navItems: NavItem[] = [
   { label: "Beej Suraksha", href: "/dashboard/beej-suraksha", icon: BadgeCheck },
   { label: "Mausam Chakra", href: "/dashboard/mausam-chakra", icon: CloudSun },
   { label: "Digital Twin", href: "/dashboard/digital-twin", icon: Fingerprint },
+  { label: "Impact", href: "/dashboard/impact", icon: TrendingUp },
+  { label: "Sustainability", href: "/dashboard/sustainability", icon: Leaf },
+  { label: "Alerts", href: "/dashboard/alerts", icon: Bell },
 ];
 
 interface SidebarProps {

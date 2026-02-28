@@ -115,6 +115,30 @@ const services = [
     borderColor: "border-l-violet-500",
     key: "digitalTwin",
   },
+  {
+    name: "Impact Dashboard",
+    href: "/dashboard/impact",
+    description:
+      "Revenue model, unit economics, market sizing, and impact metrics with animated counters.",
+    borderColor: "border-l-emerald-600",
+    key: "impact",
+  },
+  {
+    name: "Sustainability Tracker",
+    href: "/dashboard/sustainability",
+    description:
+      "Carbon/water footprint analysis, traditional vs optimized farming comparison, and SDG alignment.",
+    borderColor: "border-l-green-400",
+    key: "sustainability",
+  },
+  {
+    name: "SMS/WhatsApp Alerts",
+    href: "/dashboard/alerts",
+    description:
+      "Alert configuration, WhatsApp-style phone mockup preview, and multi-channel notification simulation.",
+    borderColor: "border-l-yellow-500",
+    key: "alerts",
+  },
 ] as const;
 
 const recentActivity = [

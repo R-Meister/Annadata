@@ -1,10 +1,11 @@
 "use client";
 
-import { Search, Bell, Menu, User, ChevronDown, LogOut } from "lucide-react";
+import { Search, Bell, Menu, User, ChevronDown, LogOut, Languages } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth-store";
+import { useLanguageStore } from "@/store/language-store";
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -13,6 +14,7 @@ interface HeaderProps {
 export function Header({ onMenuClick }: HeaderProps) {
   const router = useRouter();
   const { user, isAuthenticated, logout } = useAuthStore();
+  const { language, setLanguage, t } = useLanguageStore();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
@@ -66,6 +68,16 @@ export function Header({ onMenuClick }: HeaderProps) {
         {/* Mobile search */}
         <button className="rounded-md p-2 text-[var(--color-text-muted)] hover:bg-[var(--color-border)] sm:hidden">
           <Search className="h-5 w-5" />
+        </button>
+
+        {/* Language toggle */}
+        <button
+          onClick={() => setLanguage(language === "en" ? "hi" : "en")}
+          className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-border)] transition-colors"
+          title={language === "en" ? "हिन्दी में बदलें" : "Switch to English"}
+        >
+          <Languages className="h-4 w-4" />
+          <span>{language === "en" ? "हिन्दी" : "EN"}</span>
         </button>
 
         {/* Notification bell */}

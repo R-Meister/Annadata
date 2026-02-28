@@ -1,4 +1,17 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import gsap from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { useLanguageStore } from "@/store/language-store";
+import { Languages } from "lucide-react";
+
+gsap.registerPlugin(ScrollTrigger);
+
+/* ------------------------------------------------------------------
+   Data
+   ------------------------------------------------------------------ */
 
 const services = [
   {
@@ -92,10 +105,10 @@ const services = [
 ];
 
 const stats = [
-  { label: "Services", value: "11" },
-  { label: "ML Models", value: "15+" },
-  { label: "Data Records", value: "1.1M+" },
-  { label: "Quantum Strategies", value: "3" },
+  { label: "stat.services", value: 11, suffix: "", display: "11" },
+  { label: "stat.models", value: 15, suffix: "+", display: "15+" },
+  { label: "stat.records", value: 1.1, suffix: "M+", display: "1.1M+" },
+  { label: "stat.quantum", value: 3, suffix: "", display: "3" },
 ];
 
 const teamMembers = [
@@ -105,78 +118,299 @@ const teamMembers = [
   { name: "Kshitij", role: "Full-Stack" },
 ];
 
-export default function HomePage() {
+/* ------------------------------------------------------------------
+   Animated Counter Hook
+   ------------------------------------------------------------------ */
+
+function useAnimatedCounter(
+  target: number,
+  duration: number = 2000,
+  trigger: boolean = false,
+) {
+  const [current, setCurrent] = useState(0);
+
+  useEffect(() => {
+    if (!trigger) return;
+    let start: number | null = null;
+    let raf: number;
+
+    function step(timestamp: number) {
+      if (!start) start = timestamp;
+      const progress = Math.min((timestamp - start) / duration, 1);
+      // Ease out cubic
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setCurrent(eased * target);
+      if (progress < 1) {
+        raf = requestAnimationFrame(step);
+      }
+    }
+
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [target, duration, trigger]);
+
+  return current;
+}
+
+/* ------------------------------------------------------------------
+   Stat Counter Component
+   ------------------------------------------------------------------ */
+
+function StatCounter({
+  target,
+  suffix,
+  label,
+  isDecimal,
+}: {
+  target: number;
+  suffix: string;
+  label: string;
+  isDecimal?: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (!ref.current) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.5 },
+    );
+    observer.observe(ref.current);
+    return () => observer.disconnect();
+  }, []);
+
+  const animated = useAnimatedCounter(target, 2000, visible);
+  const display = isDecimal ? animated.toFixed(1) : Math.floor(animated).toString();
+
   return (
-    <main className="min-h-screen bg-[var(--color-background)]">
+    <div
+      ref={ref}
+      className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-center"
+    >
+      <p className="text-2xl font-bold text-[var(--color-primary)]">
+        {display}
+        {suffix}
+      </p>
+      <p className="text-sm text-[var(--color-text-muted)]">{label}</p>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------
+   Landing Page
+   ------------------------------------------------------------------ */
+
+export default function HomePage() {
+  const mainRef = useRef<HTMLElement>(null);
+  const { language, setLanguage, t } = useLanguageStore();
+
+  useEffect(() => {
+    if (!mainRef.current) return;
+
+    const ctx = gsap.context(() => {
+      // Hero section — fade in + slide up
+      gsap.from("[data-animate='hero-badge']", {
+        opacity: 0,
+        y: 30,
+        duration: 0.8,
+        ease: "power3.out",
+      });
+
+      gsap.from("[data-animate='hero-title']", {
+        opacity: 0,
+        y: 40,
+        duration: 1,
+        delay: 0.2,
+        ease: "power3.out",
+      });
+
+      gsap.from("[data-animate='hero-desc']", {
+        opacity: 0,
+        y: 30,
+        duration: 0.8,
+        delay: 0.4,
+        ease: "power3.out",
+      });
+
+      gsap.from("[data-animate='hero-cta']", {
+        opacity: 0,
+        y: 20,
+        duration: 0.6,
+        delay: 0.6,
+        ease: "power3.out",
+      });
+
+      // Stats — scroll triggered stagger
+      gsap.from("[data-animate='stat']", {
+        scrollTrigger: {
+          trigger: "[data-section='stats']",
+          start: "top 85%",
+          once: true,
+        },
+        opacity: 0,
+        y: 40,
+        stagger: 0.1,
+        duration: 0.6,
+        ease: "power2.out",
+      });
+
+      // Services section title
+      gsap.from("[data-animate='services-header']", {
+        scrollTrigger: {
+          trigger: "[data-section='services']",
+          start: "top 85%",
+          once: true,
+        },
+        opacity: 0,
+        y: 30,
+        duration: 0.8,
+        ease: "power2.out",
+      });
+
+      // Service cards — staggered reveal
+      gsap.from("[data-animate='service-card']", {
+        scrollTrigger: {
+          trigger: "[data-section='services']",
+          start: "top 75%",
+          once: true,
+        },
+        opacity: 0,
+        y: 50,
+        stagger: 0.06,
+        duration: 0.5,
+        ease: "power2.out",
+      });
+
+      // Team section
+      gsap.from("[data-animate='team-header']", {
+        scrollTrigger: {
+          trigger: "[data-section='team']",
+          start: "top 85%",
+          once: true,
+        },
+        opacity: 0,
+        y: 30,
+        duration: 0.8,
+        ease: "power2.out",
+      });
+
+      gsap.from("[data-animate='team-card']", {
+        scrollTrigger: {
+          trigger: "[data-section='team']",
+          start: "top 80%",
+          once: true,
+        },
+        opacity: 0,
+        scale: 0.9,
+        stagger: 0.1,
+        duration: 0.5,
+        ease: "back.out(1.5)",
+      });
+
+      // Tech stack
+      gsap.from("[data-animate='tech']", {
+        scrollTrigger: {
+          trigger: "[data-section='tech']",
+          start: "top 90%",
+          once: true,
+        },
+        opacity: 0,
+        duration: 1,
+        ease: "power2.out",
+      });
+    }, mainRef);
+
+    return () => ctx.revert();
+  }, []);
+
+  return (
+    <main ref={mainRef} className="min-h-screen bg-[var(--color-background)]">
+      {/* Language toggle (floating, top-right) */}
+      <div className="fixed top-4 right-4 z-50">
+        <button
+          onClick={() => setLanguage(language === "en" ? "hi" : "en")}
+          className="flex items-center gap-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs font-medium text-[var(--color-text-muted)] shadow-md hover:shadow-lg transition-all hover:bg-[var(--color-border)]"
+          title={language === "en" ? "हिन्दी में बदलें" : "Switch to English"}
+        >
+          <Languages className="h-4 w-4" />
+          <span>{language === "en" ? "हिन्दी" : "English"}</span>
+        </button>
+      </div>
+
       {/* Hero Section */}
       <section className="relative overflow-hidden px-6 py-24 sm:py-32 lg:px-8">
         <div className="absolute inset-0 -z-10 overflow-hidden">
           <div className="absolute -top-40 left-1/2 -translate-x-1/2 h-[600px] w-[800px] rounded-full bg-[var(--color-primary)]/5 blur-3xl" />
         </div>
         <div className="mx-auto max-w-4xl text-center">
-          <div className="mb-4 inline-flex items-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-1.5 text-sm text-[var(--color-text-muted)]">
-            11 AI-Powered Microservices for Agriculture
+          <div
+            data-animate="hero-badge"
+            className="mb-4 inline-flex items-center rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-1.5 text-sm text-[var(--color-text-muted)]"
+          >
+            {t("landing.badge")}
           </div>
-          <h1 className="text-5xl font-bold tracking-tight sm:text-7xl">
+          <h1 data-animate="hero-title" className="text-5xl font-bold tracking-tight sm:text-7xl">
             <span className="text-[var(--color-primary)]">Annadata</span>{" "}
             <span className="text-[var(--color-text)]">OS</span>
           </h1>
-          <p className="mt-6 text-lg leading-8 text-[var(--color-text-muted)]">
-            A multi-service AI agriculture platform empowering Indian farmers
-            with quantum-aware yield forecasting, market intelligence, soil
-            analysis, crop protection, smart irrigation, fintech credit scoring,
-            cold chain optimization, seed verification, and hyper-local weather.
+          <p data-animate="hero-desc" className="mt-6 text-lg leading-8 text-[var(--color-text-muted)]">
+            {t("landing.tagline")}
           </p>
-          <div className="mt-10 flex items-center justify-center gap-x-6">
+          <div data-animate="hero-cta" className="mt-10 flex items-center justify-center gap-x-6">
             <Link
               href="/dashboard"
               className="rounded-lg bg-[var(--color-primary)] px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[var(--color-primary-dark)] transition-colors"
             >
-              Open Dashboard
+              {t("landing.cta")}
             </Link>
             <Link
               href="/auth"
               className="text-sm font-semibold leading-6 text-[var(--color-text)]"
             >
-              Sign In <span aria-hidden="true">&rarr;</span>
+              {t("landing.signin")} <span aria-hidden="true">&rarr;</span>
             </Link>
           </div>
         </div>
       </section>
 
       {/* Stats */}
-      <section className="mx-auto max-w-4xl px-6 pb-16">
+      <section data-section="stats" className="mx-auto max-w-4xl px-6 pb-16">
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           {stats.map((stat) => (
-            <div
-              key={stat.label}
-              className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-center"
-            >
-              <p className="text-2xl font-bold text-[var(--color-primary)]">
-                {stat.value}
-              </p>
-              <p className="text-sm text-[var(--color-text-muted)]">
-                {stat.label}
-              </p>
+            <div key={stat.label} data-animate="stat">
+              <StatCounter
+                target={stat.value}
+                suffix={stat.suffix}
+                label={t(stat.label as "stat.services" | "stat.models" | "stat.records" | "stat.quantum")}
+                isDecimal={stat.value % 1 !== 0}
+              />
             </div>
           ))}
         </div>
       </section>
 
       {/* Services Grid */}
-      <section className="mx-auto max-w-7xl px-6 pb-24">
-        <h2 className="text-2xl font-bold text-center mb-4 text-[var(--color-text)]">
-          Platform Services
-        </h2>
-        <p className="text-center text-[var(--color-text-muted)] mb-12 max-w-2xl mx-auto">
-          Each service runs as an independent FastAPI microservice with shared
-          PostgreSQL, Redis, and Celery background workers.
-        </p>
+      <section data-section="services" className="mx-auto max-w-7xl px-6 pb-24">
+        <div data-animate="services-header">
+          <h2 className="text-2xl font-bold text-center mb-4 text-[var(--color-text)]">
+            {t("landing.services")}
+          </h2>
+          <p className="text-center text-[var(--color-text-muted)] mb-12 max-w-2xl mx-auto">
+            {t("landing.servicesDesc")}
+          </p>
+        </div>
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {services.map((service) => (
             <Link
               key={service.name}
               href={service.href}
+              data-animate="service-card"
               className="group relative rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-sm hover:shadow-md transition-all hover:border-[var(--color-primary)]"
             >
               <div className="flex items-center justify-between mb-4">
@@ -201,15 +435,16 @@ export default function HomePage() {
       </section>
 
       {/* Team Section */}
-      <section className="border-t border-[var(--color-border)] py-16">
+      <section data-section="team" className="border-t border-[var(--color-border)] py-16">
         <div className="mx-auto max-w-4xl px-6">
-          <h2 className="text-xl font-bold text-center mb-8 text-[var(--color-text)]">
-            Team
+          <h2 data-animate="team-header" className="text-xl font-bold text-center mb-8 text-[var(--color-text)]">
+            {t("landing.team")}
           </h2>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             {teamMembers.map((member) => (
               <div
                 key={member.name}
+                data-animate="team-card"
                 className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-center"
               >
                 <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-[var(--color-primary)]/10 text-[var(--color-primary)] font-bold text-sm">
@@ -228,11 +463,10 @@ export default function HomePage() {
       </section>
 
       {/* Tech Stack */}
-      <section className="border-t border-[var(--color-border)] py-12">
+      <section data-section="tech" className="border-t border-[var(--color-border)] py-12">
         <div className="mx-auto max-w-4xl px-6 text-center">
-          <p className="text-sm text-[var(--color-text-muted)]">
-            Built with FastAPI + SQLAlchemy 2.0 + PostgreSQL + Redis + Celery |
-            Next.js 16 + React 19 + TypeScript + Tailwind v4 | Docker Compose
+          <p data-animate="tech" className="text-sm text-[var(--color-text-muted)]">
+            {t("landing.tech")}
           </p>
         </div>
       </section>
