@@ -532,7 +532,7 @@ services:
     restart: unless-stopped
     environment:
       # Server-side rewrites need Docker network hostnames
-      - NEXT_PUBLIC_API_BASE_URL=http://localhost
+      - NEXT_PUBLIC_API_BASE_URL=http://localhost:3000
       - NEXT_PUBLIC_MSP_MITRA_URL=http://msp-mitra:8001
       - NEXT_PUBLIC_SOILSCAN_URL=http://soilscan-ai:8002
       - NEXT_PUBLIC_FASAL_RAKSHAK_URL=http://fasal-rakshak:8003
