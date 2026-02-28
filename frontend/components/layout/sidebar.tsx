@@ -18,6 +18,7 @@ import {
   Truck,
   BadgeCheck,
   CloudSun,
+  Fingerprint,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
@@ -41,6 +42,7 @@ const navItems: NavItem[] = [
   { label: "Harvest-to-Cart", href: "/dashboard/harvest-to-cart", icon: Truck },
   { label: "Beej Suraksha", href: "/dashboard/beej-suraksha", icon: BadgeCheck },
   { label: "Mausam Chakra", href: "/dashboard/mausam-chakra", icon: CloudSun },
+  { label: "Digital Twin", href: "/dashboard/digital-twin", icon: Fingerprint },
 ];
 
 interface SidebarProps {

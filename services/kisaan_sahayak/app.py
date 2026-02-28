@@ -1,9 +1,17 @@
-"""Kisaan Sahayak - Rule-based agricultural knowledge assistant for farmers."""
+"""Kisaan Sahayak - AI-powered agricultural knowledge assistant for farmers.
+
+Integrates Google Gemini Flash LLM for natural-language advisory while
+retaining rule-based knowledge retrieval as grounding context and fallback.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import logging
+import os
 import re
+import time
 import uuid
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -22,6 +30,135 @@ from services.shared.auth.router import router as auth_router, setup_rate_limiti
 from services.shared.config import settings
 from services.shared.db.models import ChatMessage, ChatSession, FarmerInteractionRecord
 from services.shared.db.session import close_db, get_db, init_db
+
+# ---------------------------------------------------------------------------
+# Gemini LLM Setup  (free tier: 15 RPM / 1 M tokens/day)
+# ---------------------------------------------------------------------------
+logger = logging.getLogger("kisaan_sahayak")
+
+_GEMINI_AVAILABLE = False
+_gemini_model = None
+
+try:
+    import google.generativeai as genai  # type: ignore[import-untyped]
+
+    _GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+    if _GEMINI_API_KEY:
+        genai.configure(api_key=_GEMINI_API_KEY)
+        _gemini_model = genai.GenerativeModel(
+            "gemini-2.0-flash",
+            generation_config=genai.GenerationConfig(
+                temperature=0.7,
+                top_p=0.9,
+                max_output_tokens=1024,
+            ),
+            safety_settings={
+                "HARM_CATEGORY_HARASSMENT": "BLOCK_NONE",
+                "HARM_CATEGORY_HATE_SPEECH": "BLOCK_NONE",
+                "HARM_CATEGORY_SEXUALLY_EXPLICIT": "BLOCK_NONE",
+                "HARM_CATEGORY_DANGEROUS_CONTENT": "BLOCK_NONE",
+            },
+        )
+        _GEMINI_AVAILABLE = True
+        logger.info("Gemini Flash initialised — LLM-enhanced chat enabled.")
+    else:
+        logger.warning("GEMINI_API_KEY not set — falling back to rule-based chat.")
+except ImportError:
+    logger.warning(
+        "google-generativeai not installed — falling back to rule-based chat."
+    )
+
+
+# Simple token-bucket rate limiter for Gemini (15 RPM free tier)
+class _GeminiRateLimiter:
+    """Sliding-window rate limiter: max `capacity` calls per `window` seconds."""
+
+    def __init__(self, capacity: int = 14, window: float = 60.0):
+        self._capacity = capacity
+        self._window = window
+        self._timestamps: list[float] = []
+        self._lock = asyncio.Lock()
+
+    async def acquire(self) -> bool:
+        async with self._lock:
+            now = time.monotonic()
+            self._timestamps = [t for t in self._timestamps if now - t < self._window]
+            if len(self._timestamps) >= self._capacity:
+                return False
+            self._timestamps.append(now)
+            return True
+
+
+_gemini_limiter = _GeminiRateLimiter(capacity=14, window=60.0)
+
+
+# ---------------------------------------------------------------------------
+# System prompt for Gemini-enhanced chat
+# ---------------------------------------------------------------------------
+_SYSTEM_PROMPT = """\
+You are **Kisaan Sahayak**, an expert Indian agricultural advisor built by *Annadata OS*.
+
+## Constraints
+- Reply in the SAME language the farmer uses (Hindi, English, Punjabi, Marathi, etc.).
+- Be concise (≤ 250 words). Use bullet points, bold headers, and practical action items.
+- When knowledge-base data is provided in [CONTEXT], weave it naturally into your answer — \
+do NOT ignore it, and do NOT contradict it with hallucinated data.
+- If the context is empty or irrelevant, rely on your own agricultural knowledge but \
+clearly state "Based on general guidance" so the farmer knows.
+- Always end with 1-2 actionable next steps the farmer can take today.
+- Never give medical, legal, or financial advice beyond standard agricultural economics.
+- Use farmer-friendly language; avoid academic jargon.
+- When mentioning government schemes, include the official portal URL if you know it.
+"""
+
+
+async def _call_gemini(
+    user_message: str,
+    kb_context: str,
+    history: list[dict[str, str]],
+    language: str = "en",
+) -> str | None:
+    """Call Gemini Flash with grounding context.  Returns None on any failure."""
+    if not _GEMINI_AVAILABLE or _gemini_model is None:
+        return None
+    if not await _gemini_limiter.acquire():
+        logger.warning("Gemini rate limit reached — falling back to rule-based.")
+        return None
+
+    try:
+        # Build the conversation for Gemini
+        gemini_history: list[dict[str, Any]] = []
+        for msg in history[:-1]:  # exclude the current user message (sent separately)
+            role = "user" if msg["role"] == "user" else "model"
+            gemini_history.append({"role": role, "parts": [msg["content"]]})
+
+        # Build the contextualised user turn
+        lang_hint = (
+            f"Respond in {'Hindi' if language == 'hi' else language}."
+            if language != "en"
+            else ""
+        )
+        contextualised_prompt = (
+            (
+                f"{lang_hint}\n\n"
+                f"[CONTEXT from Annadata knowledge base]\n{kb_context}\n[/CONTEXT]\n\n"
+                f"Farmer's question: {user_message}"
+            )
+            if kb_context
+            else f"{lang_hint}\n\nFarmer's question: {user_message}"
+        )
+
+        chat = _gemini_model.start_chat(history=gemini_history)
+        response = await asyncio.to_thread(
+            chat.send_message,
+            [_SYSTEM_PROMPT, contextualised_prompt],
+        )
+        text = response.text.strip()
+        return text if text else None
+    except Exception:
+        logger.exception("Gemini call failed — falling back to rule-based.")
+        return None
+
 
 # ============================================================
 # Knowledge Base
@@ -2184,6 +2321,7 @@ class ChatResponse(BaseModel):
     crop_detected: str | None
     sources: list[ChatSource]
     suggested_actions: list[str]
+    model_used: str = "rule-based"
     responded_at: str
 
 
@@ -2285,19 +2423,20 @@ async def root():
     """Root endpoint returning service info."""
     return {
         "service": "Kisaan Sahayak",
-        "version": "2.0.0",
-        "description": "Multi-Agent Crop Health & Advisory System",
+        "version": "3.0.0",
+        "description": "Multi-Agent Crop Health & Advisory System with Gemini LLM",
+        "llm_status": "active" if _GEMINI_AVAILABLE else "fallback (rule-based)",
         "features": [
             "Natural language farming Q&A in multiple Indian languages",
+            "Gemini Flash LLM-enhanced responses with KB grounding (rule-based fallback)",
             "Government scheme eligibility and application assistance",
             "Personalized crop calendar and task reminders",
-            "Rule-based knowledge retrieval — no external API keys needed",
             "Vision Agent — crop disease classification (PlantVillage 38-class, simulated MobileNetV2/ResNet)",
             "Verifier Agent — risk/severity assessment (LOW/MEDIUM/HIGH/CRITICAL) with action decisions",
             "Weather Agent — short-term forecast with irrigation advice",
             "Market Agent — nearby mandi prices with best selling time recommendation",
             "Memory Agent — farmer interaction logging and pattern analysis",
-            "LLM Agent — WhatsApp-style multilingual summaries (simulated Ollama/Gemini)",
+            "LLM Agent — WhatsApp-style multilingual summaries via Gemini Flash (template fallback)",
             "Full Pipeline — single-request end-to-end analysis (photo → disease + risk + treatment + irrigation + market + history)",
         ],
         "agents": {
@@ -2320,7 +2459,7 @@ async def root():
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
-    """Process a farming question and return knowledge-based response."""
+    """Process a farming question using KB lookup + Gemini LLM enhancement."""
     session_id, history = await _get_or_create_session(request.session_id, db)
     await _add_to_session(db, session_id, "user", request.message)
     history.append({"role": "user", "content": request.message})
@@ -2336,7 +2475,7 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
                 crop = found
                 break
 
-    # Build the response based on intent
+    # ---- Step 1: Rule-based KB lookup (always runs — provides grounding) ----
     if intent == "fertilizer_advice":
         if crop:
             result = _format_fertilizer(crop)
@@ -2404,16 +2543,36 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
     else:
         result = _format_general_response(request.message)
 
-    await _add_to_session(db, session_id, "assistant", result["text"])
+    # ---- Step 2: Gemini enhancement (uses KB text as grounding context) ----
+    model_used = "rule-based"
+    response_text = result["text"]
+
+    # Only call Gemini when we have a substantive KB answer (not a "which crop?" prompt)
+    # and the response is long enough to be worth enhancing.
+    kb_has_content = len(result["text"]) > 100 and intent != "general"
+
+    if _GEMINI_AVAILABLE and kb_has_content:
+        gemini_response = await _call_gemini(
+            user_message=request.message,
+            kb_context=result["text"],
+            history=history,
+            language=request.language,
+        )
+        if gemini_response:
+            response_text = gemini_response
+            model_used = "Gemini-2.0-Flash"
+
+    await _add_to_session(db, session_id, "assistant", response_text)
 
     return ChatResponse(
         session_id=session_id,
-        response=result["text"],
+        response=response_text,
         language=request.language,
         intent_detected=intent,
         crop_detected=crop,
         sources=[ChatSource(**s) for s in result["sources"]],
         suggested_actions=result["actions"],
+        model_used=model_used,
         responded_at=datetime.now(timezone.utc).isoformat(),
     )
 
@@ -4119,7 +4278,7 @@ async def _agent_memory_get(
     }
 
 
-def _agent_llm(
+async def _agent_llm(
     disease_info: dict[str, Any] | None = None,
     weather_info: dict[str, Any] | None = None,
     market_info: dict[str, Any] | None = None,
@@ -4128,9 +4287,100 @@ def _agent_llm(
     format_style: str = "whatsapp",
 ) -> dict[str, Any]:
     """
-    LLM Agent: Simulates Ollama/Gemini summary generation.
-    Generates a WhatsApp-style comprehensive advisory in the requested language.
+    LLM Agent: Generates a comprehensive advisory using Gemini Flash.
+    Falls back to template-based generation if Gemini is unavailable.
     """
+    now = datetime.now(timezone.utc)
+
+    # --- Try Gemini-enhanced summary first ---
+    if _GEMINI_AVAILABLE:
+        context_parts: list[str] = []
+        if disease_info:
+            top = disease_info.get("top_prediction", {})
+            context_parts.append(
+                f"Disease diagnosis: {top.get('disease_name', 'Unknown')} "
+                f"({top.get('confidence', 0):.0%} confidence) on {disease_info.get('crop_type', 'crop')}. "
+                f"Treatment: {disease_info.get('treatment', 'N/A')}."
+            )
+        if weather_info:
+            forecasts = weather_info.get("forecasts", [])
+            today = forecasts[0] if forecasts else {}
+            context_parts.append(
+                f"Weather: {today.get('condition', 'N/A')}, "
+                f"{today.get('temp_max_c', 'N/A')}°C/{today.get('temp_min_c', 'N/A')}°C, "
+                f"rain {today.get('rain_probability', 0):.0%}. "
+                f"Irrigation advice: {weather_info.get('irrigation_advice', 'N/A')}."
+            )
+        if market_info:
+            prices = market_info.get("mandi_prices", [])
+            best = prices[0] if prices else {}
+            context_parts.append(
+                f"Market: best Rs {best.get('price_per_quintal', 'N/A')}/qtl at "
+                f"{best.get('mandi_name', 'N/A')} ({best.get('price_trend', 'N/A')} trend). "
+                f"Advice: {market_info.get('best_selling_time', 'N/A')}."
+            )
+
+        llm_prompt = (
+            farmer_query or "Provide a comprehensive advisory based on the data."
+        )
+        if format_style == "whatsapp":
+            llm_prompt += "\n\nFormat as a WhatsApp-friendly message with bold headers and emojis."
+        elif format_style == "sms":
+            llm_prompt += "\n\nKeep it very brief (≤160 chars) like an SMS."
+
+        gemini_text = await _call_gemini(
+            user_message=llm_prompt,
+            kb_context="\n".join(context_parts),
+            history=[],
+            language=language,
+        )
+        if gemini_text:
+            # Build follow-ups from context
+            follow_ups: list[str] = []
+            if disease_info:
+                dname = disease_info.get("top_prediction", {}).get("disease_name", "")
+                if "healthy" not in dname.lower():
+                    follow_ups.append(
+                        "Should I check treatment availability at nearby shops?"
+                    )
+                    follow_ups.append("Do you want a detailed spray schedule?")
+            if weather_info:
+                follow_ups.append("Want a 5-day detailed forecast?")
+            if market_info:
+                follow_ups.append("Should I track price trends for the next week?")
+            if not follow_ups:
+                follow_ups = [
+                    "Ask me anything about your crop!",
+                    "Want fertilizer or irrigation advice?",
+                ]
+
+            return {
+                "summary": gemini_text,
+                "language": language,
+                "format_style": format_style,
+                "model_used": "Gemini-2.0-Flash",
+                "follow_up_suggestions": follow_ups,
+                "timestamp": now.isoformat(),
+            }
+
+    # --- Fallback: template-based summary (original logic) ---
+    return _agent_llm_template(
+        disease_info=disease_info,
+        weather_info=weather_info,
+        market_info=market_info,
+        language=language,
+        format_style=format_style,
+    )
+
+
+def _agent_llm_template(
+    disease_info: dict[str, Any] | None = None,
+    weather_info: dict[str, Any] | None = None,
+    market_info: dict[str, Any] | None = None,
+    language: str = "en",
+    format_style: str = "whatsapp",
+) -> dict[str, Any]:
+    """Template-based fallback for _agent_llm when Gemini is unavailable."""
     now = datetime.now(timezone.utc)
     sections = []
 
@@ -4291,7 +4541,7 @@ def _agent_llm(
         "summary": summary,
         "language": language,
         "format_style": format_style,
-        "model_used": "Simulated-Ollama-Gemini-7B-AgriFineTuned",
+        "model_used": "Template-Fallback",
         "follow_up_suggestions": follow_ups,
         "timestamp": now.isoformat(),
     }
@@ -4404,9 +4654,9 @@ async def agent_memory_get(farmer_id: str, db: AsyncSession = Depends(get_db)):
 async def agent_llm(request: LLMRequest):
     """
     LLM Agent: Generate WhatsApp-style summaries in local language
-    using simulated Ollama/Gemini model.
+    using Gemini Flash (with template fallback).
     """
-    result = _agent_llm(
+    result = await _agent_llm(
         disease_info=request.disease_info,
         weather_info=request.weather_info,
         market_info=request.market_info,
@@ -4477,7 +4727,7 @@ async def pipeline_analyze(
     )
 
     # 6. LLM Agent — generate comprehensive summary
-    llm_result = _agent_llm(
+    llm_result = await _agent_llm(
         disease_info=vision_result,
         weather_info=weather_result,
         market_info=market_result,

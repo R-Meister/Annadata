@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Card,
   CardHeader,
@@ -12,72 +12,190 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { API_PREFIXES } from "@/lib/utils";
 
+// ----------------------------------------------------------------
+// Quick action presets (covers all 7 KB intents + general)
+// ----------------------------------------------------------------
 const quickActions = [
-  "Ask about schemes",
-  "Get crop calendar",
-  "Check weather",
+  { label: "Wheat fertilizer", message: "What fertilizer should I use for wheat?" },
+  { label: "Rice irrigation", message: "When should I irrigate rice?" },
+  { label: "Pest control (maize)", message: "How to control stem borer in maize?" },
+  { label: "Government schemes", message: "Tell me about PM-KISAN and other schemes" },
+  { label: "Sowing guide (mustard)", message: "Best sowing time and method for mustard?" },
+  { label: "Harvest advice (potato)", message: "When to harvest potato and storage tips?" },
+  { label: "Market prices (cotton)", message: "What are current cotton market prices and MSP?" },
+  { label: "Weather advisory", message: "What is the weather forecast and irrigation advice?" },
 ] as const;
 
+// ----------------------------------------------------------------
+// Types
+// ----------------------------------------------------------------
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  modelUsed?: string;
+  suggestedActions?: string[];
+}
+
+interface ChatAPIResponse {
+  session_id: string;
+  response: string;
+  language: string;
+  intent_detected: string;
+  crop_detected: string | null;
+  sources: { type: string; topic: string }[];
+  suggested_actions: string[];
+  model_used: string;
+  responded_at: string;
+}
+
+// ----------------------------------------------------------------
+// Simple markdown-ish renderer for assistant messages
+// ----------------------------------------------------------------
+function FormattedMessage({ text }: { text: string }) {
+  // Split by double newlines for paragraphs, single newlines for line breaks
+  const paragraphs = text.split(/\n{2,}/);
+
+  return (
+    <div className="space-y-2">
+      {paragraphs.map((para, pi) => {
+        // Check if this paragraph is a bullet list
+        const lines = para.split("\n");
+        const isList = lines.every(
+          (l) => l.trim().startsWith("- ") || l.trim().startsWith("* ") || /^\d+\.\s/.test(l.trim()) || l.trim() === ""
+        );
+
+        if (isList) {
+          return (
+            <ul key={pi} className="space-y-1 pl-4">
+              {lines
+                .filter((l) => l.trim())
+                .map((line, li) => {
+                  const content = line.replace(/^\s*[-*]\s+/, "").replace(/^\d+\.\s+/, "");
+                  return (
+                    <li key={li} className="list-disc text-sm">
+                      <FormatInline text={content} />
+                    </li>
+                  );
+                })}
+            </ul>
+          );
+        }
+
+        return (
+          <p key={pi} className="text-sm">
+            {lines.map((line, li) => (
+              <span key={li}>
+                {li > 0 && <br />}
+                <FormatInline text={line} />
+              </span>
+            ))}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Handles **bold** and *italic* inline formatting */
+function FormatInline({ text }: { text: string }) {
+  // Match **bold**, *italic*, and plain text segments
+  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part.startsWith("**") && part.endsWith("**")) {
+          return (
+            <strong key={i} className="font-semibold">
+              {part.slice(2, -2)}
+            </strong>
+          );
+        }
+        if (part.startsWith("*") && part.endsWith("*")) {
+          return <em key={i}>{part.slice(1, -1)}</em>;
+        }
+        return <span key={i}>{part}</span>;
+      })}
+    </>
+  );
+}
+
+// ----------------------------------------------------------------
+// Typing indicator (3 bouncing dots)
+// ----------------------------------------------------------------
+function TypingIndicator() {
+  return (
+    <div className="flex justify-start">
+      <div className="flex items-center gap-1 rounded-lg bg-[var(--color-border)] px-4 py-3">
+        <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--color-text-muted)] [animation-delay:0ms]" />
+        <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--color-text-muted)] [animation-delay:150ms]" />
+        <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--color-text-muted)] [animation-delay:300ms]" />
+      </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------
+// Main component
+// ----------------------------------------------------------------
 export default function KisaanSahayakPage() {
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<
-    { role: "user" | "assistant"; content: string }[]
-  >([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  async function handleSend() {
-    const text = input.trim();
-    if (!text) return;
-    setMessages((prev) => [...prev, { role: "user", content: text }]);
-    setInput("");
-    setStatus("loading");
-    try {
-      const res = await fetch(`${API_PREFIXES.kisaanSahayak}/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: text,
-          language: "en",
-          session_id: sessionId,
-        }),
-      });
-      if (!res.ok) throw new Error("Chat failed");
-      const data = await res.json();
-      setSessionId(data.session_id ?? sessionId);
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: data.response ?? "Response received" },
-      ]);
-      setStatus("idle");
-    } catch {
-      setStatus("error");
-    }
-  }
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, status]);
 
-  async function handleQuickAction(action: string) {
-    setMessages((prev) => [...prev, { role: "user", content: action }]);
-    setStatus("loading");
-    try {
-      const res = await fetch(`${API_PREFIXES.kisaanSahayak}/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: action,
-          language: "en",
-          session_id: sessionId,
-        }),
-      });
-      if (!res.ok) throw new Error("Chat failed");
-      const data = await res.json();
-      setSessionId(data.session_id ?? sessionId);
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: data.response ?? "Response received" },
-      ]);
-      setStatus("idle");
-    } catch {
-      setStatus("error");
+  const sendMessage = useCallback(
+    async (text: string) => {
+      if (!text.trim()) return;
+      setMessages((prev) => [...prev, { role: "user", content: text.trim() }]);
+      setInput("");
+      setStatus("loading");
+      try {
+        const res = await fetch(`${API_PREFIXES.kisaanSahayak}/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: text.trim(),
+            language: "en",
+            session_id: sessionId,
+          }),
+        });
+        if (!res.ok) throw new Error("Chat failed");
+        const data: ChatAPIResponse = await res.json();
+        setSessionId(data.session_id ?? sessionId);
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: data.response ?? "Response received",
+            modelUsed: data.model_used,
+            suggestedActions: data.suggested_actions,
+          },
+        ]);
+        setStatus("idle");
+      } catch {
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: "Sorry, I could not reach the Kisaan Sahayak service. Please try again.",
+          },
+        ]);
+        setStatus("error");
+      }
+    },
+    [sessionId]
+  );
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage(input);
     }
   }
 
@@ -89,8 +207,8 @@ export default function KisaanSahayakPage() {
           Kisaan Sahayak &mdash; AI Assistant
         </h1>
         <p className="mt-1 text-[var(--color-text-muted)]">
-          Your multilingual AI farming assistant — ask about government schemes,
-          crop calendars, weather advisories, and more.
+          Your multilingual AI farming assistant powered by Gemini &mdash; ask about
+          fertilizers, irrigation, pest control, government schemes, and more.
         </p>
       </div>
 
@@ -100,55 +218,100 @@ export default function KisaanSahayakPage() {
           <CardHeader className="border-b border-[var(--color-border)]">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">Chat</CardTitle>
-              <Badge variant="outline">Online</Badge>
+              <div className="flex items-center gap-2">
+                {sessionId && (
+                  <span className="text-xs text-[var(--color-text-muted)] font-mono">
+                    {sessionId.slice(0, 16)}
+                  </span>
+                )}
+                <Badge variant="outline" className="text-xs">
+                  {status === "loading" ? "Thinking..." : "Online"}
+                </Badge>
+              </div>
             </div>
           </CardHeader>
 
           {/* Messages */}
           <CardContent className="flex-1 overflow-y-auto pt-4">
-            {messages.length === 0 ? (
-              <div className="flex h-full min-h-[300px] flex-col items-center justify-center gap-2 text-center">
-                <svg
-                  className="h-12 w-12 text-[var(--color-text-muted)]"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={1.5}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z"
-                  />
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 2.25c-5.385 0-9.75 4.365-9.75 9.75s4.365 9.75 9.75 9.75 9.75-4.365 9.75-9.75S17.385 2.25 12 2.25z"
-                  />
-                </svg>
-                <p className="text-sm text-[var(--color-text-muted)]">
-                  No messages yet. Start a conversation or use a quick action
-                  below.
-                </p>
+            {messages.length === 0 && status !== "loading" ? (
+              <div className="flex h-full min-h-[300px] flex-col items-center justify-center gap-3 text-center">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--color-primary)]/10">
+                  <svg
+                    className="h-8 w-8 text-[var(--color-primary)]"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={1.5}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z"
+                    />
+                  </svg>
+                </div>
+                <div>
+                  <p className="font-medium text-[var(--color-text)]">
+                    Namaste Kisaan!
+                  </p>
+                  <p className="mt-1 max-w-sm text-sm text-[var(--color-text-muted)]">
+                    Ask me anything about farming — fertilizer dosage, irrigation
+                    schedules, pest management, government schemes, or market prices.
+                    Try a quick action to get started.
+                  </p>
+                </div>
               </div>
             ) : (
               <div className="space-y-4">
                 {messages.map((msg, i) => (
-                  <div
-                    key={i}
-                    className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-                  >
+                  <div key={i}>
                     <div
-                      className={`max-w-[80%] rounded-lg px-4 py-2 text-sm ${
-                        msg.role === "user"
-                          ? "bg-[var(--color-primary)] text-white"
-                          : "bg-[var(--color-border)] text-[var(--color-text)]"
-                      }`}
+                      className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                     >
-                      {msg.content}
+                      <div
+                        className={`max-w-[85%] rounded-lg px-4 py-2.5 ${
+                          msg.role === "user"
+                            ? "bg-[var(--color-primary)] text-white"
+                            : "bg-[var(--color-border)] text-[var(--color-text)]"
+                        }`}
+                      >
+                        {msg.role === "assistant" ? (
+                          <FormattedMessage text={msg.content} />
+                        ) : (
+                          <p className="text-sm">{msg.content}</p>
+                        )}
+                      </div>
                     </div>
+                    {/* Model badge + suggested actions for assistant messages */}
+                    {msg.role === "assistant" && (
+                      <div className="mt-1.5 flex flex-wrap items-center gap-2 pl-1">
+                        {msg.modelUsed && (
+                          <Badge
+                            variant="outline"
+                            className={`text-[10px] ${
+                              msg.modelUsed.includes("Gemini")
+                                ? "border-[var(--color-accent)] text-[var(--color-accent)]"
+                                : "border-[var(--color-text-muted)] text-[var(--color-text-muted)]"
+                            }`}
+                          >
+                            {msg.modelUsed}
+                          </Badge>
+                        )}
+                        {msg.suggestedActions?.map((action, ai) => (
+                          <button
+                            key={ai}
+                            onClick={() => sendMessage(action)}
+                            className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-0.5 text-[11px] text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
+                          >
+                            {action}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
+                {status === "loading" && <TypingIndicator />}
+                <div ref={messagesEndRef} />
               </div>
             )}
           </CardContent>
@@ -160,17 +323,23 @@ export default function KisaanSahayakPage() {
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSend()}
-                placeholder="Type your question..."
-                className="flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                onKeyDown={handleKeyDown}
+                placeholder="Ask about fertilizers, irrigation, schemes..."
+                disabled={status === "loading"}
+                className="flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] disabled:opacity-50"
               />
-              <Button onClick={handleSend}>Send</Button>
+              <Button
+                onClick={() => sendMessage(input)}
+                disabled={status === "loading" || !input.trim()}
+              >
+                {status === "loading" ? "..." : "Send"}
+              </Button>
             </div>
-            {status === "error" ? (
-              <p className="mt-2 text-xs text-[var(--color-error)]">
-                Failed to reach Kisaan Sahayak API.
+            {status === "error" && (
+              <p className="mt-2 text-xs text-[var(--color-warning)]">
+                Service may be offline. Responses may be delayed.
               </p>
-            ) : null}
+            )}
           </div>
         </Card>
 
@@ -180,38 +349,67 @@ export default function KisaanSahayakPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Quick Actions</CardTitle>
+              <CardDescription>Tap to ask a common question</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="flex flex-col gap-2">
                 {quickActions.map((action) => (
                   <Button
-                    key={action}
+                    key={action.label}
                     variant="outline"
                     size="sm"
-                    className="justify-start"
-                    onClick={() => handleQuickAction(action)}
+                    className="justify-start text-left"
+                    disabled={status === "loading"}
+                    onClick={() => sendMessage(action.message)}
                   >
-                    {action}
+                    {action.label}
                   </Button>
                 ))}
               </div>
             </CardContent>
           </Card>
 
-          {/* Previous conversations */}
+          {/* Session info */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">
-                Previous Conversations
-              </CardTitle>
-              <CardDescription>Your recent chat sessions</CardDescription>
+              <CardTitle className="text-base">Session Info</CardTitle>
+              <CardDescription>Current conversation details</CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="flex h-32 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">
-                <p className="text-sm text-[var(--color-text-muted)]">
-                  No previous conversations
-                </p>
+            <CardContent className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-[var(--color-text-muted)]">Messages</span>
+                <span className="font-medium text-[var(--color-text)]">
+                  {messages.length}
+                </span>
               </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-[var(--color-text-muted)]">Session</span>
+                <span className="font-mono text-xs text-[var(--color-text)]">
+                  {sessionId ? sessionId.slice(0, 12) + "..." : "New"}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-[var(--color-text-muted)]">Model</span>
+                <Badge variant="outline" className="text-[10px]">
+                  {messages.length > 0
+                    ? (messages.filter((m) => m.role === "assistant").pop()?.modelUsed ?? "rule-based")
+                    : "Gemini Flash"}
+                </Badge>
+              </div>
+              {messages.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-2 w-full"
+                  onClick={() => {
+                    setMessages([]);
+                    setSessionId(null);
+                    setStatus("idle");
+                  }}
+                >
+                  New conversation
+                </Button>
+              )}
             </CardContent>
           </Card>
         </div>

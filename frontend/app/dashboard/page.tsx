@@ -107,6 +107,14 @@ const services = [
     borderColor: "border-l-sky-400",
     key: "mausamChakra",
   },
+  {
+    name: "Farmer Digital Twin",
+    href: "/dashboard/digital-twin",
+    description:
+      "Unified farmer profile aggregating data from all 11 services — risk radar, soil nutrients, crop timeline, and action items.",
+    borderColor: "border-l-violet-500",
+    key: "digitalTwin",
+  },
 ] as const;
 
 const recentActivity = [
