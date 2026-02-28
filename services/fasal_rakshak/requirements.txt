@@ -9,6 +9,7 @@ python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.0
 bcrypt<4.1
 email-validator>=2.0.0
+slowapi>=0.1.9
 celery>=5.3.0
 redis>=5.0.0
 # Domain-specific (rule-based, no torch needed yet)
