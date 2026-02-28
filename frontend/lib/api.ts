@@ -151,21 +151,21 @@ export interface UserProfile {
 
 export const authApi = {
   login(email: string, password: string) {
-    return apiFetch<TokenResponse>(`${API_PREFIXES.mspMitra}/auth/login`, {
+    return apiFetch<TokenResponse>("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
   },
 
   register(data: RegisterData) {
-    return apiFetch<TokenResponse>(`${API_PREFIXES.mspMitra}/auth/register`, {
+    return apiFetch<TokenResponse>("/api/auth/register", {
       method: "POST",
       body: JSON.stringify(data),
     });
   },
 
   getProfile(token: string) {
-    return apiFetch<UserProfile>(`${API_PREFIXES.mspMitra}/auth/me`, {
+    return apiFetch<UserProfile>("/api/auth/me", {
       method: "GET",
       headers: {
         Authorization: `Bearer ${token}`,
