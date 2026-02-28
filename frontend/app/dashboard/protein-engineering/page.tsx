@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import {
   Card,
   CardHeader,
@@ -6,8 +9,32 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { API_PREFIXES } from "@/lib/utils";
 
 export default function ProteinEngineeringPage() {
+  const [region, setRegion] = useState("Punjab");
+  const [climate, setClimate] = useState<any>(null);
+  const [traits, setTraits] = useState<any[]>([]);
+
+  useEffect(() => {
+    const load = async () => {
+      const [climateRes, traitsRes] = await Promise.all([
+        fetch(`${API_PREFIXES.proteinEngineering}/climate/${encodeURIComponent(region)}`),
+        fetch(`${API_PREFIXES.proteinEngineering}/protein-traits`),
+      ]);
+      if (climateRes.ok) setClimate(await climateRes.json());
+      if (traitsRes.ok) {
+        const data = await traitsRes.json();
+        const list = Object.entries(data.traits ?? {}).map(([name, value]: any) => ({
+          name,
+          ...value,
+        }));
+        setTraits(list);
+      }
+    };
+    void load();
+  }, [region]);
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -34,11 +61,33 @@ export default function ProteinEngineeringPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="mb-4">
+            <label className="text-xs font-medium text-[var(--color-text-muted)]">
+              Region
+            </label>
+            <input
+              value={region}
+              onChange={(event) => setRegion(event.target.value)}
+              className="mt-1 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm"
+            />
+          </div>
           <div className="grid gap-4 sm:grid-cols-3">
             {[
-              { label: "Avg Temperature", value: "--", unit: "C" },
-              { label: "Annual Rainfall", value: "--", unit: "mm" },
-              { label: "Growing Season", value: "--", unit: "days" },
+              {
+                label: "Avg Temperature",
+                value: climate?.avg_temperature?.toFixed?.(1) ?? "--",
+                unit: "C",
+              },
+              {
+                label: "Annual Rainfall",
+                value: climate?.avg_rainfall?.toFixed?.(0) ?? "--",
+                unit: "mm",
+              },
+              {
+                label: "Growing Season",
+                value: climate?.samples ?? "--",
+                unit: "days",
+              },
             ].map((item) => (
               <div
                 key={item.label}
@@ -94,19 +143,13 @@ export default function ProteinEngineeringPage() {
           </CardHeader>
           <CardContent>
             <ul className="space-y-2 text-sm text-[var(--color-text-muted)]">
-              {[
-                { protein: "DREB2A", pdb: "3OGP", trait: "Drought" },
-                { protein: "NPR1", pdb: "3ZGA", trait: "Disease" },
-                { protein: "GW2", pdb: "5GML", trait: "Yield" },
-                { protein: "Bt Cry1Ac", pdb: "4ARY", trait: "Pest" },
-                { protein: "HSP101", pdb: "1KP8", trait: "Heat" },
-              ].map((p) => (
-                <li key={p.pdb} className="flex justify-between">
+              {(traits.length ? traits.slice(0, 5) : []).map((trait) => (
+                <li key={trait.name} className="flex justify-between">
                   <span>
-                    {p.protein} ({p.trait})
+                    {trait.proteins?.[0] ?? trait.name} ({trait.name})
                   </span>
                   <span className="font-mono text-[var(--color-primary)]">
-                    {p.pdb}
+                    {trait.pdb_ids?.[0] ?? "--"}
                   </span>
                 </li>
               ))}

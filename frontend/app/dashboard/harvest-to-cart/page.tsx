@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Card,
   CardHeader,
@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { API_PREFIXES } from "@/lib/utils";
 
 const crops = [
   "Tomato",
@@ -24,6 +25,79 @@ const crops = [
 
 export default function HarvestToCartPage() {
   const [selectedCrop, setSelectedCrop] = useState<string>(crops[0]);
+  const [route, setRoute] = useState<{
+    total_distance_km: number;
+    estimated_time_hours: number;
+    fuel_cost_inr: number;
+    freshness_index: number;
+  } | null>(null);
+  const [buyers, setBuyers] = useState<{ name: string; offered_price_per_kg: number }[]>([]);
+  const [windowInfo, setWindowInfo] = useState<{ shelf_life_days: number; max_transport_hours: number; storage_temp_c: number; packaging: string } | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      try {
+        const [routeRes, buyersRes, windowRes] = await Promise.all([
+          fetch(`${API_PREFIXES.harvestToCart}/logistics/optimize-route`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              origin_lat: 28.61,
+              origin_lon: 77.21,
+              destinations: [
+                { lat: 28.7, lon: 77.1, demand_tonnes: 12 },
+                { lat: 28.58, lon: 77.33, demand_tonnes: 9 },
+              ],
+              vehicle_capacity_tonnes: 12,
+            }),
+          }),
+          fetch(`${API_PREFIXES.harvestToCart}/connect/farmer-retailer`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              farmer_id: "farmer-001",
+              crop_type: selectedCrop,
+              quantity_tonnes: 8,
+              quality_grade: "A",
+              preferred_city: "Delhi",
+            }),
+          }),
+          fetch(`${API_PREFIXES.harvestToCart}/harvest-window/${encodeURIComponent(selectedCrop)}`),
+        ]);
+        if (routeRes.ok) {
+          const data = await routeRes.json();
+          setRoute({
+            total_distance_km: data.total_distance_km,
+            estimated_time_hours: data.estimated_time_hours,
+            fuel_cost_inr: data.fuel_cost_estimate_inr,
+            freshness_index: data.freshness_index,
+          });
+        }
+        if (buyersRes.ok) {
+          const data = await buyersRes.json();
+          setBuyers(data.matched_buyers ?? []);
+        }
+        if (windowRes.ok) {
+          const data = await windowRes.json();
+          setWindowInfo({
+            shelf_life_days: data.shelf_life_days,
+            max_transport_hours: data.max_transport_hours,
+            storage_temp_c: data.recommended_storage_temp_c,
+            packaging: data.packaging_type,
+          });
+        }
+      } catch {
+        setRoute(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+    void load();
+  }, [selectedCrop]);
+
+  const buyersTop = useMemo(() => buyers.slice(0, 3), [buyers]);
 
   return (
     <div className="space-y-8">
@@ -101,7 +175,7 @@ export default function HarvestToCartPage() {
           <CardContent>
             <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">
               <p className="text-sm text-[var(--color-text-muted)]">
-                Demand chart will appear here
+                {loading ? "Fetching demand forecast..." : "Demand chart will appear here"}
               </p>
             </div>
           </CardContent>
@@ -121,19 +195,27 @@ export default function HarvestToCartPage() {
             <ul className="space-y-2 text-sm text-[var(--color-text-muted)]">
               <li className="flex justify-between">
                 <span>Total Distance</span>
-                <span className="font-medium text-[var(--color-text)]">-- km</span>
+                <span className="font-medium text-[var(--color-text)]">
+                  {route ? `${route.total_distance_km} km` : "-- km"}
+                </span>
               </li>
               <li className="flex justify-between">
                 <span>Estimated Time</span>
-                <span className="font-medium text-[var(--color-text)]">-- hours</span>
+                <span className="font-medium text-[var(--color-text)]">
+                  {route ? `${route.estimated_time_hours} hours` : "-- hours"}
+                </span>
               </li>
               <li className="flex justify-between">
                 <span>Fuel Cost</span>
-                <span className="font-medium text-[var(--color-text)]">-- INR</span>
+                <span className="font-medium text-[var(--color-text)]">
+                  {route ? `₹${route.fuel_cost_inr}` : "-- INR"}
+                </span>
               </li>
               <li className="flex justify-between">
                 <span>Freshness Index</span>
-                <span className="font-medium text-[var(--color-text)]">-- %</span>
+                <span className="font-medium text-[var(--color-text)]">
+                  {route ? `${Math.round(route.freshness_index * 100)}%` : "-- %"}
+                </span>
               </li>
             </ul>
           </CardContent>
@@ -148,18 +230,18 @@ export default function HarvestToCartPage() {
           </CardHeader>
           <CardContent>
             <ul className="space-y-3 text-sm text-[var(--color-text-muted)]">
-              {[
-                { name: "FreshMart Delhi", price: "-- /kg" },
-                { name: "BigBasket", price: "-- /kg" },
-                { name: "Reliance Fresh", price: "-- /kg" },
-              ].map((buyer) => (
-                <li key={buyer.name} className="flex justify-between">
-                  <span>{buyer.name}</span>
-                  <span className="font-medium text-[var(--color-text)]">
-                    {buyer.price}
-                  </span>
-                </li>
-              ))}
+              {buyersTop.length ? (
+                buyersTop.map((buyer) => (
+                  <li key={buyer.name} className="flex justify-between">
+                    <span>{buyer.name}</span>
+                    <span className="font-medium text-[var(--color-text)]">
+                      ₹{buyer.offered_price_per_kg}/kg
+                    </span>
+                  </li>
+                ))
+              ) : (
+                <li className="text-[var(--color-text-muted)]">No buyers yet</li>
+              )}
             </ul>
           </CardContent>
         </Card>
@@ -178,10 +260,23 @@ export default function HarvestToCartPage() {
         <CardContent>
           <div className="grid gap-4 sm:grid-cols-4">
             {[
-              { label: "Shelf Life", value: "-- days" },
-              { label: "Max Transport", value: "-- hours" },
-              { label: "Storage Temp", value: "-- C" },
-              { label: "Packaging", value: "--" },
+              {
+                label: "Shelf Life",
+                value: windowInfo ? `${windowInfo.shelf_life_days} days` : "-- days",
+              },
+              {
+                label: "Max Transport",
+                value: windowInfo
+                  ? `${windowInfo.max_transport_hours} hours`
+                  : "-- hours",
+              },
+              {
+                label: "Storage Temp",
+                value: windowInfo
+                  ? `${windowInfo.storage_temp_c} C`
+                  : "-- C",
+              },
+              { label: "Packaging", value: windowInfo?.packaging ?? "--" },
             ].map((item) => (
               <div
                 key={item.label}

@@ -1,3 +1,6 @@
+"use client";
+
+import { useMemo, useState } from "react";
 import {
   Card,
   CardHeader,
@@ -7,8 +10,93 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { API_PREFIXES } from "@/lib/utils";
+
+type DetectionResponse = {
+  detection_id: string;
+  status: string;
+  crop: string;
+  disease_detected: boolean;
+  top_matches: {
+    name: string;
+    scientific_name: string;
+    confidence: number;
+    matched_symptoms: string[];
+    severity_assessment: string;
+    treatment: { chemical: string; organic: string; preventive: string };
+  }[];
+  environmental_note?: string | null;
+  detected_at: string;
+};
+
+type AlertsResponse = {
+  region: string;
+  season: string;
+  current_month: string;
+  alerts: {
+    alert_id: string;
+    severity: string;
+    crop: string;
+    disease_name: string;
+    risk_score: number;
+    advisory: string;
+    issued_at: string;
+  }[];
+};
 
 export default function FasalRakshakPage() {
+  const [crop, setCrop] = useState("wheat");
+  const [region, setRegion] = useState("punjab");
+  const [symptoms, setSymptoms] = useState("yellowing leaves, brown spots");
+  const [temperature, setTemperature] = useState("28");
+  const [humidity, setHumidity] = useState("78");
+  const [detection, setDetection] = useState<DetectionResponse | null>(null);
+  const [alerts, setAlerts] = useState<AlertsResponse | null>(null);
+  const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
+
+  const topMatch = detection?.top_matches?.[0];
+  const alertCount = alerts?.alerts?.length ?? 0;
+
+  const badgeLabel = useMemo(() => {
+    if (!detection) return "Awaiting Upload";
+    return detection.disease_detected ? "Detected" : "No Disease";
+  }, [detection]);
+
+  async function runDetection() {
+    setStatus("loading");
+    try {
+      const res = await fetch(`${API_PREFIXES.fasalRakshak}/detect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          crop,
+          symptoms: symptoms
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean),
+          temperature_celsius: Number(temperature),
+          humidity_pct: Number(humidity),
+          region,
+          growth_stage: "vegetative",
+        }),
+      });
+      if (!res.ok) throw new Error("Detection failed");
+      const data = (await res.json()) as DetectionResponse;
+      setDetection(data);
+
+      const alertRes = await fetch(
+        `${API_PREFIXES.fasalRakshak}/alerts?region=${encodeURIComponent(region)}&crop=${encodeURIComponent(crop)}`,
+      );
+      if (alertRes.ok) {
+        const alertData = (await alertRes.json()) as AlertsResponse;
+        setAlerts(alertData);
+      }
+      setStatus("idle");
+    } catch {
+      setStatus("error");
+    }
+  }
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -25,38 +113,73 @@ export default function FasalRakshakPage() {
       {/* Image upload */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Upload Crop Image</CardTitle>
+          <CardTitle className="text-base">Crop Diagnostics</CardTitle>
           <CardDescription>
-            Take a photo of the affected leaf, stem, or fruit and upload it for
-            instant diagnosis
+            Enter crop details and symptoms to generate an AI diagnosis
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex h-48 flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-[var(--color-border)] bg-[var(--color-background)] transition-colors hover:border-[var(--color-error)]">
-            <svg
-              className="h-10 w-10 text-[var(--color-text-muted)]"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={1.5}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z"
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <label className="text-xs font-medium text-[var(--color-text-muted)]">
+                Crop
+              </label>
+              <input
+                value={crop}
+                onChange={(event) => setCrop(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm"
               />
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z"
+            </div>
+            <div>
+              <label className="text-xs font-medium text-[var(--color-text-muted)]">
+                Region
+              </label>
+              <input
+                value={region}
+                onChange={(event) => setRegion(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm"
               />
-            </svg>
-            <p className="text-sm text-[var(--color-text-muted)]">
-              Supported: JPEG, PNG &middot; Max 10 MB
-            </p>
-            <Button size="sm" variant="outline">
-              Upload Image
+            </div>
+            <div>
+              <label className="text-xs font-medium text-[var(--color-text-muted)]">
+                Temperature (C)
+              </label>
+              <input
+                value={temperature}
+                onChange={(event) => setTemperature(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-[var(--color-text-muted)]">
+                Humidity (%)
+              </label>
+              <input
+                value={humidity}
+                onChange={(event) => setHumidity(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="text-xs font-medium text-[var(--color-text-muted)]">
+                Symptoms (comma separated)
+              </label>
+              <input
+                value={symptoms}
+                onChange={(event) => setSymptoms(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
+          <div className="mt-4 flex items-center gap-3">
+            <Button onClick={runDetection} disabled={status === "loading"}>
+              {status === "loading" ? "Analyzing..." : "Run Diagnosis"}
             </Button>
+            {status === "error" ? (
+              <span className="text-sm text-[var(--color-error)]">
+                Failed to fetch detection.
+              </span>
+            ) : null}
           </div>
         </CardContent>
       </Card>
@@ -68,15 +191,26 @@ export default function FasalRakshakPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">Detection Result</CardTitle>
-              <Badge variant="outline">Awaiting Upload</Badge>
+              <Badge variant={detection ? "default" : "outline"}>{badgeLabel}</Badge>
             </div>
           </CardHeader>
           <CardContent>
-            <div className="flex h-32 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">
-              <p className="text-sm text-[var(--color-text-muted)]">
-                Disease classification will appear here
-              </p>
-            </div>
+            {topMatch ? (
+              <div className="space-y-2 text-sm text-[var(--color-text-muted)]">
+                <div className="text-lg font-semibold text-[var(--color-text)]">
+                  {topMatch.name}
+                </div>
+                <div>Confidence: {(topMatch.confidence * 100).toFixed(1)}%</div>
+                <div>Severity: {topMatch.severity_assessment}</div>
+                <div className="text-xs">Detected at {detection?.detected_at}</div>
+              </div>
+            ) : (
+              <div className="flex h-32 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">
+                <p className="text-sm text-[var(--color-text-muted)]">
+                  Disease classification will appear here
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -89,11 +223,34 @@ export default function FasalRakshakPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex h-32 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">
-              <p className="text-sm text-[var(--color-text-muted)]">
-                Recommendations will appear after diagnosis
-              </p>
-            </div>
+            {topMatch ? (
+              <ul className="space-y-2 text-sm text-[var(--color-text-muted)]">
+                <li>
+                  <span className="font-medium text-[var(--color-text)]">
+                    Chemical:
+                  </span>{" "}
+                  {topMatch.treatment.chemical}
+                </li>
+                <li>
+                  <span className="font-medium text-[var(--color-text)]">
+                    Organic:
+                  </span>{" "}
+                  {topMatch.treatment.organic}
+                </li>
+                <li>
+                  <span className="font-medium text-[var(--color-text)]">
+                    Preventive:
+                  </span>{" "}
+                  {topMatch.treatment.preventive}
+                </li>
+              </ul>
+            ) : (
+              <div className="flex h-32 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">
+                <p className="text-sm text-[var(--color-text-muted)]">
+                  Recommendations will appear after diagnosis
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -102,7 +259,9 @@ export default function FasalRakshakPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">Alert Summary</CardTitle>
-              <Badge variant="secondary">0 Alerts</Badge>
+              <Badge variant={alertCount > 0 ? "default" : "secondary"}>
+                {alertCount} Alerts
+              </Badge>
             </div>
             <CardDescription>
               Regional disease and pest alerts
@@ -110,14 +269,25 @@ export default function FasalRakshakPage() {
           </CardHeader>
           <CardContent>
             <ul className="space-y-2 text-sm text-[var(--color-text-muted)]">
-              <li className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-[var(--color-success)]" />
-                No active pest alerts in your region
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-[var(--color-success)]" />
-                No disease outbreaks reported nearby
-              </li>
+              {alerts?.alerts?.length ? (
+                alerts.alerts.slice(0, 2).map((alert) => (
+                  <li key={alert.alert_id} className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-[var(--color-warning)]" />
+                    {alert.disease_name} ({alert.severity})
+                  </li>
+                ))
+              ) : (
+                <>
+                  <li className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-[var(--color-success)]" />
+                    No active pest alerts in your region
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-[var(--color-success)]" />
+                    No disease outbreaks reported nearby
+                  </li>
+                </>
+              )}
             </ul>
           </CardContent>
         </Card>

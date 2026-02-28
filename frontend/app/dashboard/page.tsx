@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect } from "react";
 import Link from "next/link";
 import {
   Card,
@@ -7,6 +10,7 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { useServicesStore } from "@/store/services-store";
 
 /* ------------------------------------------------------------------
    Service catalogue - static data for the overview grid
@@ -19,6 +23,7 @@ const services = [
     description:
       "Price intelligence and MSP analysis for agricultural commodities across Indian markets.",
     borderColor: "border-l-green-600",
+    key: "mspMitra",
   },
   {
     name: "SoilScan AI",
@@ -26,6 +31,7 @@ const services = [
     description:
       "AI-powered soil health analysis with nutrient mapping and fertilizer recommendations.",
     borderColor: "border-l-amber-500",
+    key: "soilscan",
   },
   {
     name: "Fasal Rakshak",
@@ -33,6 +39,7 @@ const services = [
     description:
       "Crop disease detection, pest management, and integrated remedy recommendations.",
     borderColor: "border-l-red-500",
+    key: "fasalRakshak",
   },
   {
     name: "Jal Shakti",
@@ -40,6 +47,7 @@ const services = [
     description:
       "Smart irrigation scheduling and water-use analytics powered by IoT sensor data.",
     borderColor: "border-l-sky-500",
+    key: "jalShakti",
   },
   {
     name: "Harvest Shakti",
@@ -47,6 +55,7 @@ const services = [
     description:
       "Harvest decision support with yield estimation, crop recommendation, and AI chatbot.",
     borderColor: "border-l-purple-500",
+    key: "harvestShakti",
   },
   {
     name: "Kisaan Sahayak",
@@ -54,6 +63,7 @@ const services = [
     description:
       "Multi-agent AI assistant with vision, verifier, weather, market, and memory agents.",
     borderColor: "border-l-orange-500",
+    key: "kisaanSahayak",
   },
   {
     name: "Protein Engineering",
@@ -61,6 +71,7 @@ const services = [
     description:
       "AI-powered crop protein engineering with climate profiling and trait analysis.",
     borderColor: "border-l-teal-500",
+    key: "proteinEngineering",
   },
   {
     name: "Kisan Credit Score",
@@ -68,6 +79,7 @@ const services = [
     description:
       "Farmer credit scoring based on yields, land productivity, weather risk, and market diversification.",
     borderColor: "border-l-indigo-500",
+    key: "kisanCredit",
   },
   {
     name: "Harvest-to-Cart",
@@ -75,6 +87,7 @@ const services = [
     description:
       "Cold chain optimization, demand prediction, and farmer-retailer logistics.",
     borderColor: "border-l-cyan-500",
+    key: "harvestToCart",
   },
   {
     name: "Beej Suraksha",
@@ -82,6 +95,7 @@ const services = [
     description:
       "QR-based seed tracking, AI seed authenticity verification, and community reporting.",
     borderColor: "border-l-lime-500",
+    key: "beejSuraksha",
   },
   {
     name: "Mausam Chakra",
@@ -89,6 +103,7 @@ const services = [
     description:
       "Hyper-local hour-by-hour weather forecasts with IoT station data fusion and crop advisories.",
     borderColor: "border-l-sky-400",
+    key: "mausamChakra",
   },
 ] as const;
 
@@ -117,6 +132,12 @@ const recentActivity = [
    ------------------------------------------------------------------ */
 
 export default function DashboardPage() {
+  const { services: statusMap, checkAllServices } = useServicesStore();
+
+  useEffect(() => {
+    void checkAllServices();
+  }, [checkAllServices]);
+
   return (
     <div className="space-y-8">
       {/* Page header */}
@@ -159,9 +180,20 @@ export default function DashboardPage() {
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <CardTitle>{svc.name}</CardTitle>
-                    <Badge variant="default">Active</Badge>
+                    {statusMap[svc.key]?.status === "healthy" ? (
+                      <Badge variant="default">Healthy</Badge>
+                    ) : statusMap[svc.key]?.status === "unhealthy" ? (
+                      <Badge variant="destructive">Down</Badge>
+                    ) : (
+                      <Badge variant="secondary">Unknown</Badge>
+                    )}
                   </div>
                   <CardDescription>{svc.description}</CardDescription>
+                  {statusMap[svc.key]?.lastChecked ? (
+                    <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+                      Last checked: {new Date(statusMap[svc.key].lastChecked!).toLocaleString()}
+                    </p>
+                  ) : null}
                 </CardHeader>
               </Card>
             </Link>

@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
 import {
   Card,
   CardHeader,
@@ -6,8 +9,106 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { API_PREFIXES } from "@/lib/utils";
+
+type PlotResponse = {
+  plot_id: string;
+  farm_id: string;
+  crop: string;
+  area_hectares: number;
+  soil_type: string;
+  irrigation_method: string;
+  current_moisture_pct: number;
+  registered_at: string;
+};
+
+type ScheduleResponse = {
+  schedule: { date: string; time: string; duration_minutes: number; water_volume_liters: number }[];
+  efficiency_pct: number;
+  generated_at: string;
+};
+
+type UsageResponse = {
+  total_usage_liters: number;
+  efficiency_score: number;
+  savings_vs_flood_irrigation_pct: number;
+};
+
+type SensorResponse = {
+  sensors: { sensor_id: string; type: string; value: number; unit: string; status: string }[];
+  irrigation_active: boolean;
+  last_updated: string;
+};
+
+type ValveStatusResponse = {
+  valve_status: string;
+  flow_rate_pct: number;
+  battery_level_pct: number;
+  last_action_timestamp: string;
+  auto_decision_reason?: string | null;
+};
 
 export default function JalShaktiPage() {
+  const [plotId, setPlotId] = useState<string | null>(null);
+  const [schedule, setSchedule] = useState<ScheduleResponse | null>(null);
+  const [usage, setUsage] = useState<UsageResponse | null>(null);
+  const [sensors, setSensors] = useState<SensorResponse | null>(null);
+  const [valve, setValve] = useState<ValveStatusResponse | null>(null);
+
+  useEffect(() => {
+    const setup = async () => {
+      try {
+        const res = await fetch(`${API_PREFIXES.jalShakti}/register-plot`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            farm_id: "farm-001",
+            crop: "wheat",
+            area_hectares: 2.2,
+            soil_type: "loam",
+            irrigation_method: "drip",
+            current_moisture_pct: 28,
+            latitude: 28.61,
+            longitude: 77.21,
+          }),
+        });
+        if (!res.ok) return;
+        const plot = (await res.json()) as PlotResponse;
+        setPlotId(plot.plot_id);
+      } catch {
+        setPlotId(null);
+      }
+    };
+    void setup();
+  }, []);
+
+  useEffect(() => {
+    if (!plotId) return;
+    const load = async () => {
+      try {
+        const [scheduleRes, usageRes, sensorRes, valveRes] = await Promise.all([
+          fetch(`${API_PREFIXES.jalShakti}/schedule/${plotId}`),
+          fetch(`${API_PREFIXES.jalShakti}/usage?farm_id=farm-001&days=30`),
+          fetch(`${API_PREFIXES.jalShakti}/sensors/${plotId}`),
+          fetch(`${API_PREFIXES.jalShakti}/iot/valve-status/${plotId}`),
+        ]);
+        if (scheduleRes.ok) setSchedule(await scheduleRes.json());
+        if (usageRes.ok) setUsage(await usageRes.json());
+        if (sensorRes.ok) setSensors(await sensorRes.json());
+        if (valveRes.ok) setValve(await valveRes.json());
+      } catch {
+        setSchedule(null);
+      }
+    };
+    void load();
+  }, [plotId]);
+
+  const scheduleDays = useMemo(() => schedule?.schedule?.slice(0, 7) || [], [schedule]);
+  const efficiency = usage?.efficiency_score?.toFixed(1) ?? "--";
+  const totalUsage = usage ? `${usage.total_usage_liters.toFixed(0)} L` : "--";
+  const savings = usage ? `${usage.savings_vs_flood_irrigation_pct.toFixed(1)}%` : "--";
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -35,7 +136,7 @@ export default function JalShaktiPage() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-7 gap-2">
-            {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => (
+            {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day, index) => (
               <div
                 key={day}
                 className="flex flex-col items-center gap-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] p-3"
@@ -44,7 +145,9 @@ export default function JalShaktiPage() {
                   {day}
                 </span>
                 <span className="text-lg font-semibold text-[var(--color-text)]">
-                  --
+                  {scheduleDays[index]
+                    ? Math.round(scheduleDays[index].water_volume_liters)
+                    : "--"}
                 </span>
                 <span className="text-[10px] text-[var(--color-text-muted)]">
                   litres
@@ -68,26 +171,26 @@ export default function JalShaktiPage() {
           <CardContent>
             <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">
               <p className="text-sm text-[var(--color-text-muted)]">
-                Usage chart will appear here
+                Schedule generated at {schedule?.generated_at ? new Date(schedule.generated_at).toLocaleString() : "--"}
               </p>
             </div>
             <ul className="mt-4 space-y-2 text-sm text-[var(--color-text-muted)]">
               <li className="flex justify-between">
                 <span>Total Usage (This Month)</span>
                 <span className="font-medium text-[var(--color-text)]">
-                  --
+                  {totalUsage}
                 </span>
               </li>
               <li className="flex justify-between">
                 <span>Efficiency Score</span>
                 <span className="font-medium text-[var(--color-text)]">
-                  --
+                  {efficiency}
                 </span>
               </li>
               <li className="flex justify-between">
                 <span>Savings vs. Flood Irrigation</span>
                 <span className="font-medium text-[var(--color-text)]">
-                  --
+                  {savings}
                 </span>
               </li>
             </ul>
@@ -107,23 +210,23 @@ export default function JalShaktiPage() {
           </CardHeader>
           <CardContent>
             <ul className="space-y-3 text-sm">
-              {[
-                { label: "Soil Moisture (0–30 cm)", unit: "%" },
-                { label: "Soil Moisture (30–60 cm)", unit: "%" },
-                { label: "Air Temperature", unit: "°C" },
-                { label: "Humidity", unit: "%" },
-                { label: "Rainfall (last 24h)", unit: "mm" },
-              ].map((sensor) => (
-                <li
-                  key={sensor.label}
-                  className="flex justify-between text-[var(--color-text-muted)]"
-                >
-                  <span>{sensor.label}</span>
-                  <span className="font-medium text-[var(--color-text)]">
-                    -- {sensor.unit}
-                  </span>
+              {sensors?.sensors?.length ? (
+                sensors.sensors.slice(0, 5).map((sensor) => (
+                  <li
+                    key={sensor.sensor_id}
+                    className="flex justify-between text-[var(--color-text-muted)]"
+                  >
+                    <span>{sensor.type}</span>
+                    <span className="font-medium text-[var(--color-text)]">
+                      {sensor.value.toFixed(1)} {sensor.unit}
+                    </span>
+                  </li>
+                ))
+              ) : (
+                <li className="text-[var(--color-text-muted)]">
+                  No sensor data available
                 </li>
-              ))}
+              )}
             </ul>
           </CardContent>
         </Card>
@@ -145,6 +248,12 @@ export default function JalShaktiPage() {
               remotely. Monitor real-time valve status per plot including flow
               rate, duration, and last activity timestamp.
             </p>
+            {valve ? (
+              <div className="mt-3 text-sm text-[var(--color-text-muted)]">
+                Status: {valve.valve_status} | Flow: {valve.flow_rate_pct}% | Battery:
+                {" "}{valve.battery_level_pct}%
+              </div>
+            ) : null}
             <ul className="mt-3 space-y-1.5 text-sm text-[var(--color-text-muted)]">
               <li className="flex items-start gap-2">
                 <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-primary)]" />

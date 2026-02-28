@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Card,
   CardHeader,
@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { API_PREFIXES } from "@/lib/utils";
 
 const commodities = ["Rice", "Wheat", "Maize", "Cotton", "Soybean"] as const;
 const states = [
@@ -25,6 +26,82 @@ export default function MspMitraPage() {
     commodities[0],
   );
   const [selectedState, setSelectedState] = useState<string>(states[0]);
+  const [priceStats, setPriceStats] = useState<{
+    average: number;
+    min: number;
+    max: number;
+  } | null>(null);
+  const [predictions, setPredictions] = useState<
+    { date?: string; predicted_price?: number; price?: number }[]
+  >([]);
+  const [volatility, setVolatility] = useState<number | null>(null);
+  const [insights, setInsights] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const currentPrice = useMemo(() => {
+    if (!predictions.length) return null;
+    const first = predictions[0];
+    return first.predicted_price ?? first.price ?? null;
+  }, [predictions]);
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      try {
+        const [priceRes, predictRes, volatilityRes, insightsRes] = await Promise.all([
+          fetch(
+            `${API_PREFIXES.mspMitra}/prices/${encodeURIComponent(
+              selectedCommodity,
+            )}/${encodeURIComponent(selectedState)}?limit=8`,
+          ),
+          fetch(
+            `${API_PREFIXES.mspMitra}/predict/${encodeURIComponent(
+              selectedCommodity,
+            )}/${encodeURIComponent(selectedState)}?days=7`,
+          ),
+          fetch(
+            `${API_PREFIXES.mspMitra}/analytics/volatility/${encodeURIComponent(
+              selectedCommodity,
+            )}/${encodeURIComponent(selectedState)}?days=30`,
+          ),
+          fetch(
+            `${API_PREFIXES.mspMitra}/analytics/insights/${encodeURIComponent(
+              selectedCommodity,
+            )}/${encodeURIComponent(selectedState)}?days=30`,
+          ),
+        ]);
+
+        if (priceRes.ok) {
+          const data = await priceRes.json();
+          setPriceStats({
+            average: data.stats?.average_price ?? 0,
+            min: data.stats?.min_price ?? 0,
+            max: data.stats?.max_price ?? 0,
+          });
+        }
+        if (predictRes.ok) {
+          const data = await predictRes.json();
+          setPredictions(data.predictions ?? []);
+        }
+        if (volatilityRes.ok) {
+          const data = await volatilityRes.json();
+          setVolatility(data.volatility ?? data.volatility_pct ?? null);
+        }
+        if (insightsRes.ok) {
+          const data = await insightsRes.json();
+          setInsights(Array.isArray(data.insights) ? data.insights : []);
+        }
+      } catch {
+        setPriceStats(null);
+        setPredictions([]);
+        setInsights([]);
+        setVolatility(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+    void load();
+  }, [selectedCommodity, selectedState]);
 
   return (
     <div className="space-y-8">
@@ -98,10 +175,23 @@ export default function MspMitraPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex h-64 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">
+          <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">
             <p className="text-sm text-[var(--color-text-muted)]">
-              Price chart will appear here
+              {loading
+                ? "Loading price trend..."
+                : predictions.length
+                  ? `Latest forecast: ₹${
+                      predictions[predictions.length - 1].predicted_price ??
+                      predictions[predictions.length - 1].price ??
+                      "--"
+                    }/q`
+                  : "Price chart will appear here"}
             </p>
+            {currentPrice ? (
+              <p className="text-xs text-[var(--color-text-muted)]">
+                Current predicted price: ₹{currentPrice}/q
+              </p>
+            ) : null}
           </div>
         </CardContent>
       </Card>
@@ -117,11 +207,24 @@ export default function MspMitraPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">
-              <p className="text-sm text-[var(--color-text-muted)]">
-                Prediction panel &mdash; connect to MSP Mitra API
-              </p>
-            </div>
+            {predictions.length ? (
+              <ul className="space-y-2 text-sm text-[var(--color-text-muted)]">
+                {predictions.slice(0, 5).map((p, index) => (
+                  <li key={`${p.date ?? index}`} className="flex justify-between">
+                    <span>{p.date ?? `Day ${index + 1}`}</span>
+                    <span className="font-medium text-[var(--color-text)]">
+                      ₹{p.predicted_price ?? p.price ?? "--"}/q
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">
+                <p className="text-sm text-[var(--color-text-muted)]">
+                  Prediction panel &mdash; connect to MSP Mitra API
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -138,28 +241,35 @@ export default function MspMitraPage() {
               <li className="flex justify-between">
                 <span>Average Mandi Price</span>
                 <span className="font-medium text-[var(--color-text)]">
-                  --
+                  {priceStats ? `₹${priceStats.average}` : "--"}
                 </span>
               </li>
               <li className="flex justify-between">
                 <span>MSP (Current)</span>
                 <span className="font-medium text-[var(--color-text)]">
-                  --
+                  {currentPrice ? `₹${currentPrice}` : "--"}
                 </span>
               </li>
               <li className="flex justify-between">
                 <span>30-day Volatility</span>
                 <span className="font-medium text-[var(--color-text)]">
-                  --
+                  {volatility !== null ? volatility : "--"}
                 </span>
               </li>
               <li className="flex justify-between">
                 <span>Price Spread (Min–Max)</span>
                 <span className="font-medium text-[var(--color-text)]">
-                  --
+                  {priceStats
+                    ? `₹${priceStats.min} - ₹${priceStats.max}`
+                    : "--"}
                 </span>
               </li>
             </ul>
+            {insights.length ? (
+              <div className="mt-4 text-xs text-[var(--color-text-muted)]">
+                {insights[0]}
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       </div>

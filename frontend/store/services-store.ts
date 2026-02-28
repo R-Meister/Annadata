@@ -28,6 +28,15 @@ const SERVICE_ENTRIES: { key: string; name: string; url: string }[] = [
   { key: "jalShakti", name: "Jal Shakti", url: API_URLS.jalShakti },
   { key: "harvestShakti", name: "Harvest Shakti", url: API_URLS.harvestShakti },
   { key: "kisaanSahayak", name: "Kisaan Sahayak", url: API_URLS.kisaanSahayak },
+  {
+    key: "proteinEngineering",
+    name: "Protein Engineering",
+    url: API_URLS.proteinEngineering,
+  },
+  { key: "kisanCredit", name: "Kisan Credit", url: API_URLS.kisanCredit },
+  { key: "harvestToCart", name: "Harvest-to-Cart", url: API_URLS.harvestToCart },
+  { key: "beejSuraksha", name: "Beej Suraksha", url: API_URLS.beejSuraksha },
+  { key: "mausamChakra", name: "Mausam Chakra", url: API_URLS.mausamChakra },
 ];
 
 function buildInitialServices(): Record<string, ServiceStatus> {

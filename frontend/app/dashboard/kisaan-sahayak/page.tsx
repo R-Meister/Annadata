@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { API_PREFIXES } from "@/lib/utils";
 
 const quickActions = [
   "Ask about schemes",
@@ -22,18 +23,62 @@ export default function KisaanSahayakPage() {
   const [messages, setMessages] = useState<
     { role: "user" | "assistant"; content: string }[]
   >([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
 
-  function handleSend() {
+  async function handleSend() {
     const text = input.trim();
     if (!text) return;
     setMessages((prev) => [...prev, { role: "user", content: text }]);
     setInput("");
-    // TODO: call Kisaan Sahayak API and push assistant response
+    setStatus("loading");
+    try {
+      const res = await fetch(`${API_PREFIXES.kisaanSahayak}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          language: "en",
+          session_id: sessionId,
+        }),
+      });
+      if (!res.ok) throw new Error("Chat failed");
+      const data = await res.json();
+      setSessionId(data.session_id ?? sessionId);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: data.response ?? "Response received" },
+      ]);
+      setStatus("idle");
+    } catch {
+      setStatus("error");
+    }
   }
 
-  function handleQuickAction(action: string) {
+  async function handleQuickAction(action: string) {
     setMessages((prev) => [...prev, { role: "user", content: action }]);
-    // TODO: call Kisaan Sahayak API
+    setStatus("loading");
+    try {
+      const res = await fetch(`${API_PREFIXES.kisaanSahayak}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: action,
+          language: "en",
+          session_id: sessionId,
+        }),
+      });
+      if (!res.ok) throw new Error("Chat failed");
+      const data = await res.json();
+      setSessionId(data.session_id ?? sessionId);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: data.response ?? "Response received" },
+      ]);
+      setStatus("idle");
+    } catch {
+      setStatus("error");
+    }
   }
 
   return (
@@ -121,6 +166,11 @@ export default function KisaanSahayakPage() {
               />
               <Button onClick={handleSend}>Send</Button>
             </div>
+            {status === "error" ? (
+              <p className="mt-2 text-xs text-[var(--color-error)]">
+                Failed to reach Kisaan Sahayak API.
+              </p>
+            ) : null}
           </div>
         </Card>
 

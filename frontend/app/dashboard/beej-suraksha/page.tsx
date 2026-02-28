@@ -10,11 +10,50 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { API_PREFIXES } from "@/lib/utils";
 
 export default function BeejSurakshaPage() {
   const [activeTab, setActiveTab] = useState<"verify" | "report" | "catalog">(
     "verify",
   );
+  const [qrCodeId, setQrCodeId] = useState("");
+  const [verification, setVerification] = useState<any>(null);
+  const [stats, setStats] = useState<any>(null);
+  const [reportStatus, setReportStatus] = useState<string | null>(null);
+  const [reportForm, setReportForm] = useState({
+    dealer_name: "",
+    issue_type: "fake_seeds",
+    description: "",
+  });
+
+  async function runVerification() {
+    if (!qrCodeId) return;
+    const res = await fetch(
+      `${API_PREFIXES.beejSuraksha}/seed/verify/${encodeURIComponent(qrCodeId)}`,
+    );
+    if (res.ok) {
+      setVerification(await res.json());
+    }
+    const statsRes = await fetch(`${API_PREFIXES.beejSuraksha}/stats`);
+    if (statsRes.ok) setStats(await statsRes.json());
+  }
+
+  async function submitReport() {
+    const res = await fetch(`${API_PREFIXES.beejSuraksha}/community/report`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        reporter_id: "farmer-001",
+        qr_code_id: qrCodeId || "BS-DEMO-0001",
+        dealer_name: reportForm.dealer_name,
+        location: { state: "Punjab", district: "Ludhiana" },
+        issue_type: reportForm.issue_type,
+        description: reportForm.description,
+        affected_area_hectares: 0.5,
+      }),
+    });
+    setReportStatus(res.ok ? "Report submitted" : "Failed to submit");
+  }
 
   return (
     <div className="space-y-8">
@@ -62,9 +101,13 @@ export default function BeejSurakshaPage() {
                 <input
                   type="text"
                   placeholder="Enter QR Code ID (e.g., BS-XXXXXXXX)"
+                  value={qrCodeId}
+                  onChange={(event) => setQrCodeId(event.target.value)}
                   className="flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
                 />
-                <Button size="sm">Verify</Button>
+                <Button size="sm" onClick={runVerification}>
+                  Verify
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -84,23 +127,37 @@ export default function BeejSurakshaPage() {
                 <ul className="space-y-2 text-sm text-[var(--color-text-muted)]">
                   <li className="flex justify-between">
                     <span>Authentic</span>
-                    <span className="font-medium text-[var(--color-text)]">--</span>
+                    <span className="font-medium text-[var(--color-text)]">
+                      {verification ? (verification.is_authentic ? "Yes" : "No") : "--"}
+                    </span>
                   </li>
                   <li className="flex justify-between">
                     <span>Manufacturer</span>
-                    <span className="font-medium text-[var(--color-text)]">--</span>
+                    <span className="font-medium text-[var(--color-text)]">
+                      {verification?.batch_info?.manufacturer ?? "--"}
+                    </span>
                   </li>
                   <li className="flex justify-between">
                     <span>Variety</span>
-                    <span className="font-medium text-[var(--color-text)]">--</span>
+                    <span className="font-medium text-[var(--color-text)]">
+                      {verification?.batch_info?.seed_variety ?? "--"}
+                    </span>
                   </li>
                   <li className="flex justify-between">
                     <span>Expiry Status</span>
-                    <span className="font-medium text-[var(--color-text)]">--</span>
+                    <span className="font-medium text-[var(--color-text)]">
+                      {verification?.warnings?.some((w: string) => w.includes("EXPIRED"))
+                        ? "Expired"
+                        : verification
+                          ? "Valid"
+                          : "--"}
+                    </span>
                   </li>
                   <li className="flex justify-between">
                     <span>Community Trust</span>
-                    <span className="font-medium text-[var(--color-text)]">-- %</span>
+                    <span className="font-medium text-[var(--color-text)]">
+                      {verification?.community_trust_score ?? "--"} %
+                    </span>
                   </li>
                 </ul>
               </CardContent>
@@ -143,6 +200,13 @@ export default function BeejSurakshaPage() {
                   <input
                     type="text"
                     placeholder="Enter dealer name"
+                    value={reportForm.dealer_name}
+                    onChange={(event) =>
+                      setReportForm((prev) => ({
+                        ...prev,
+                        dealer_name: event.target.value,
+                      }))
+                    }
                     className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
                   />
                 </div>
@@ -150,11 +214,20 @@ export default function BeejSurakshaPage() {
                   <label className="block text-sm font-medium text-[var(--color-text)] mb-1">
                     Issue Type
                   </label>
-                  <select className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]">
-                    <option>Fake Seeds</option>
-                    <option>Low Germination</option>
-                    <option>Wrong Variety</option>
-                    <option>Expired Seeds</option>
+                  <select
+                    value={reportForm.issue_type}
+                    onChange={(event) =>
+                      setReportForm((prev) => ({
+                        ...prev,
+                        issue_type: event.target.value,
+                      }))
+                    }
+                    className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+                  >
+                    <option value="fake_seeds">Fake Seeds</option>
+                    <option value="low_germination">Low Germination</option>
+                    <option value="wrong_variety">Wrong Variety</option>
+                    <option value="expired">Expired Seeds</option>
                   </select>
                 </div>
               </div>
@@ -165,10 +238,26 @@ export default function BeejSurakshaPage() {
                 <textarea
                   rows={3}
                   placeholder="Describe the issue in detail..."
+                  value={reportForm.description}
+                  onChange={(event) =>
+                    setReportForm((prev) => ({
+                      ...prev,
+                      description: event.target.value,
+                    }))
+                  }
                   className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
                 />
               </div>
-              <Button size="sm">Submit Report</Button>
+              <div className="flex items-center gap-3">
+                <Button size="sm" onClick={submitReport}>
+                  Submit Report
+                </Button>
+                {reportStatus ? (
+                  <span className="text-xs text-[var(--color-text-muted)]">
+                    {reportStatus}
+                  </span>
+                ) : null}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -183,6 +272,26 @@ export default function BeejSurakshaPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            <div className="mb-4">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={async () => {
+                  const res = await fetch(`${API_PREFIXES.beejSuraksha}/seed/catalog`);
+                  if (res.ok) {
+                    const data = await res.json();
+                    if (Array.isArray(data.varieties)) {
+                      setVerification((prev: any) => ({
+                        ...(prev ?? {}),
+                        catalog: data.varieties,
+                      }));
+                    }
+                  }
+                }}
+              >
+                Load Catalog from API
+              </Button>
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -202,29 +311,29 @@ export default function BeejSurakshaPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {[
+                  {(verification?.catalog ?? [
                     { variety: "Pusa Basmati 1121", crop: "Rice", mfr: "IARI", germ: "85%" },
                     { variety: "HD-2967", crop: "Wheat", mfr: "IARI", germ: "88%" },
                     { variety: "Bt Cotton Bollgard II", crop: "Cotton", mfr: "Mahyco", germ: "82%" },
                     { variety: "Pioneer 30V92", crop: "Maize", mfr: "Corteva", germ: "90%" },
                     { variety: "Pusa Bold", crop: "Mustard", mfr: "IARI", germ: "87%" },
                     { variety: "Kaveri Jadoo", crop: "Rice", mfr: "Kaveri Seeds", germ: "86%" },
-                  ].map((seed) => (
+                  ]).map((seed: any) => (
                     <tr
-                      key={seed.variety}
+                      key={seed.variety ?? seed.crop}
                       className="border-b border-[var(--color-border)]"
                     >
                       <td className="py-2 font-medium text-[var(--color-text)]">
-                        {seed.variety}
+                        {seed.variety ?? seed.seed_variety ?? seed.variety_name}
                       </td>
                       <td className="py-2 text-[var(--color-text-muted)]">
-                        {seed.crop}
+                        {seed.crop ?? seed.crop_type}
                       </td>
                       <td className="py-2 text-[var(--color-text-muted)]">
-                        {seed.mfr}
+                        {seed.mfr ?? seed.manufacturer}
                       </td>
                       <td className="py-2 text-[var(--color-text-muted)]">
-                        {seed.germ}
+                        {seed.germination_rate ?? seed.germination_rate_pct ?? seed.germ}
                       </td>
                     </tr>
                   ))}
@@ -238,10 +347,10 @@ export default function BeejSurakshaPage() {
       {/* Platform Stats */}
       <div className="grid gap-4 sm:grid-cols-4">
         {[
-          { label: "Registered Batches", value: "--" },
-          { label: "Verifications", value: "--" },
-          { label: "Community Reports", value: "--" },
-          { label: "Flagged Dealers", value: "--" },
+          { label: "Registered Batches", value: stats?.total_registered ?? "--" },
+          { label: "Verifications", value: stats?.total_verifications ?? "--" },
+          { label: "Community Reports", value: stats?.total_reports ?? "--" },
+          { label: "Flagged Dealers", value: stats?.flagged_dealers ?? "--" },
         ].map((stat) => (
           <Card key={stat.label}>
             <CardHeader className="pb-2">
