@@ -9,13 +9,17 @@ import uuid
 
 import numpy as np
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from sqlalchemy.orm.attributes import flag_modified
+from sqlalchemy import func as sa_func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from services.shared.auth.router import router as auth_router, setup_rate_limiting
 from services.shared.config import settings
-from services.shared.db.session import close_db, init_db
+from services.shared.db.models import CommunityReport, SeedBatch, SeedVerification
+from services.shared.db.session import close_db, get_db, init_db
 
 # ============================================================
 # Knowledge Base — Genuine Seed Characteristics
@@ -213,12 +217,12 @@ SEED_COLOR_VECTORS: dict[str, list[float]] = {
 }
 
 # ============================================================
-# In-memory stores
+# Stores
 # ============================================================
 
-seed_registry: dict[str, dict] = {}  # qr_code_id -> batch info
-verification_records: list[dict] = []  # history of verifications
-community_reports: list[dict] = []  # community-submitted reports
+# DB: seed_registry -> SeedBatch table
+# DB: verification_records -> SeedVerification table
+# DB: community_reports -> CommunityReport table
 
 # ============================================================
 # Pydantic Models
@@ -382,35 +386,38 @@ def _compute_feature_scores(
     }
 
 
-def _get_community_trust_score(qr_code_id: str) -> float:
+async def _get_community_trust_score(qr_code_id: str, db: AsyncSession) -> float:
     """Compute trust score for a seed batch based on community reports."""
-    related = [r for r in community_reports if r.get("qr_code_id") == qr_code_id]
+    related_result = await db.execute(
+        select(CommunityReport).where(CommunityReport.qr_code_id == qr_code_id)
+    )
+    related = related_result.scalars().all()
     if not related:
         return 100.0  # no complaints = full trust
     negative_types = {"fake_seeds", "low_germination", "wrong_variety", "expired"}
-    negatives = sum(1 for r in related if r.get("issue_type") in negative_types)
+    negatives = sum(1 for r in related if r.issue_type in negative_types)
     score = max(0.0, 100.0 - negatives * 20.0)
     return round(score, 1)
 
 
-def _is_flagged_by_community(qr_code_id: str) -> bool:
+async def _is_flagged_by_community(qr_code_id: str, db: AsyncSession) -> bool:
     """Check if a seed batch has been flagged as fake by the community."""
-    related = [
-        r
-        for r in community_reports
-        if r.get("qr_code_id") == qr_code_id and r.get("issue_type") == "fake_seeds"
-    ]
-    return len(related) >= 2  # flagged if 2+ fake_seeds reports
+    related_result = await db.execute(
+        select(sa_func.count())
+        .select_from(CommunityReport)
+        .where(CommunityReport.qr_code_id == qr_code_id)
+        .where(CommunityReport.issue_type == "fake_seeds")
+    )
+    return int(related_result.scalar() or 0) >= 2
 
 
-def _get_dealer_reports(dealer_name: str) -> list[dict]:
+async def _get_dealer_reports(dealer_name: str, db: AsyncSession) -> list[dict]:
     """Get all community reports for a given dealer."""
     dealer_lower = dealer_name.strip().lower()
-    return [
-        r
-        for r in community_reports
-        if r.get("dealer_name", "").strip().lower() == dealer_lower
-    ]
+    reports_result = await db.execute(
+        select(CommunityReport).where(CommunityReport.dealer_name == dealer_lower)
+    )
+    return [report.to_dict() for report in reports_result.scalars().all()]
 
 
 # ============================================================
@@ -469,7 +476,9 @@ async def health_check():
 
 
 @app.post("/seed/register")
-async def register_seed_batch(req: SeedBatchRegisterRequest):
+async def register_seed_batch(
+    req: SeedBatchRegisterRequest, db: AsyncSession = Depends(get_db)
+):
     """Register a new seed batch and generate a QR code ID for tracking."""
     qr_code_id = f"BS-{uuid.uuid4().hex[:8].upper()}-{uuid.uuid4().hex[:4].upper()}"
     registered_at = datetime.now(timezone.utc).isoformat()
@@ -515,10 +524,24 @@ async def register_seed_batch(req: SeedBatchRegisterRequest):
         },
     ]
 
-    seed_registry[qr_code_id] = {
-        **batch_info,
-        "supply_chain": supply_chain,
-    }
+    db.add(
+        SeedBatch(
+            qr_code_id=qr_code_id,
+            manufacturer=req.manufacturer,
+            manufacturer_verified=manufacturer_verified,
+            seed_variety=req.seed_variety,
+            crop_type=req.crop_type.lower(),
+            batch_number=req.batch_number,
+            manufacture_date=req.manufacture_date,
+            expiry_date=req.expiry_date,
+            quantity_kg=req.quantity_kg,
+            certification_id=req.certification_id,
+            status="active",
+            supply_chain=supply_chain,
+            registered_at=datetime.now(timezone.utc),
+        )
+    )
+    await db.flush()
 
     return {
         "qr_code_id": qr_code_id,
@@ -529,19 +552,24 @@ async def register_seed_batch(req: SeedBatchRegisterRequest):
 
 
 @app.get("/seed/verify/{qr_code_id}")
-async def verify_seed_batch(qr_code_id: str):
+async def verify_seed_batch(qr_code_id: str, db: AsyncSession = Depends(get_db)):
     """Verify a seed batch by its QR code ID."""
-    batch = seed_registry.get(qr_code_id)
+    batch_result = await db.execute(
+        select(SeedBatch).where(SeedBatch.qr_code_id == qr_code_id)
+    )
+    batch = batch_result.scalar_one_or_none()
     if batch is None:
         # Record the failed verification attempt
-        verification_records.append(
-            {
-                "verification_id": f"ver-{uuid.uuid4().hex[:8]}",
-                "qr_code_id": qr_code_id,
-                "result": "not_found",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
+        db.add(
+            SeedVerification(
+                verification_id=f"ver-{uuid.uuid4().hex[:8]}",
+                qr_code_id=qr_code_id,
+                result="not_found",
+                warnings=[],
+                timestamp=datetime.now(timezone.utc).isoformat(),
+            )
         )
+        await db.flush()
         raise HTTPException(
             status_code=404,
             detail=f"Seed batch with QR code '{qr_code_id}' not found in registry. "
@@ -554,60 +582,61 @@ async def verify_seed_batch(qr_code_id: str):
     # Check expiry
     is_expired = False
     try:
-        expiry = datetime.strptime(batch["expiry_date"], "%Y-%m-%d").replace(
+        expiry = datetime.strptime(batch.expiry_date, "%Y-%m-%d").replace(
             tzinfo=timezone.utc
         )
         if now > expiry:
             is_expired = True
             warnings.append(
-                f"EXPIRED: Seed batch expired on {batch['expiry_date']}. "
+                f"EXPIRED: Seed batch expired on {batch.expiry_date}. "
                 "Using expired seeds may lead to poor germination."
             )
     except ValueError:
         warnings.append("Could not parse expiry date for this batch.")
 
     # Check community flags
-    flagged = _is_flagged_by_community(qr_code_id)
+    flagged = await _is_flagged_by_community(qr_code_id, db)
     if flagged:
         warnings.append(
             "COMMUNITY FLAGGED: Multiple community reports indicate this batch "
             "may contain fake or substandard seeds. Exercise caution."
         )
 
-    community_trust = _get_community_trust_score(qr_code_id)
+    community_trust = await _get_community_trust_score(qr_code_id, db)
 
     # Determine authenticity
-    is_authentic = (
-        not is_expired and not flagged and batch.get("manufacturer_verified", False)
-    )
+    is_authentic = not is_expired and not flagged and batch.manufacturer_verified
 
     # Record verification
-    verification_records.append(
-        {
-            "verification_id": f"ver-{uuid.uuid4().hex[:8]}",
-            "qr_code_id": qr_code_id,
-            "result": "authentic" if is_authentic else "suspicious",
-            "warnings": warnings,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+    db.add(
+        SeedVerification(
+            verification_id=f"ver-{uuid.uuid4().hex[:8]}",
+            qr_code_id=qr_code_id,
+            result="authentic" if is_authentic else "suspicious",
+            warnings=warnings,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
     )
+    await db.flush()
 
     return {
         "is_authentic": is_authentic,
         "batch_info": {
-            "qr_code_id": batch["qr_code_id"],
-            "manufacturer": batch["manufacturer"],
-            "seed_variety": batch["seed_variety"],
-            "crop_type": batch["crop_type"],
-            "batch_number": batch["batch_number"],
-            "manufacture_date": batch["manufacture_date"],
-            "expiry_date": batch["expiry_date"],
-            "quantity_kg": batch["quantity_kg"],
-            "certification_id": batch["certification_id"],
-            "registered_at": batch["registered_at"],
+            "qr_code_id": batch.qr_code_id,
+            "manufacturer": batch.manufacturer,
+            "seed_variety": batch.seed_variety,
+            "crop_type": batch.crop_type,
+            "batch_number": batch.batch_number,
+            "manufacture_date": batch.manufacture_date,
+            "expiry_date": batch.expiry_date,
+            "quantity_kg": batch.quantity_kg,
+            "certification_id": batch.certification_id,
+            "registered_at": batch.registered_at.isoformat()
+            if batch.registered_at
+            else None,
         },
-        "manufacturer_verified": batch.get("manufacturer_verified", False),
-        "supply_chain_history": batch.get("supply_chain", []),
+        "manufacturer_verified": batch.manufacturer_verified,
+        "supply_chain_history": batch.supply_chain or [],
         "community_trust_score": community_trust,
         "warnings": warnings,
     }
@@ -697,7 +726,9 @@ async def analyze_seed_image(req: SeedImageAnalysisRequest):
 
 
 @app.post("/community/report")
-async def submit_community_report(req: CommunityReportRequest):
+async def submit_community_report(
+    req: CommunityReportRequest, db: AsyncSession = Depends(get_db)
+):
     """Submit a community report about seed quality issues."""
     valid_issue_types = {"fake_seeds", "low_germination", "wrong_variety", "expired"}
     if req.issue_type not in valid_issue_types:
@@ -722,21 +753,36 @@ async def submit_community_report(req: CommunityReportRequest):
         "status": "submitted",
         "submitted_at": submitted_at,
     }
-    community_reports.append(report)
+    db.add(
+        CommunityReport(
+            report_id=report_id,
+            reporter_id=req.reporter_id,
+            qr_code_id=req.qr_code_id,
+            dealer_name=req.dealer_name.strip().lower(),
+            location=req.location,
+            issue_type=req.issue_type,
+            description=req.description,
+            affected_area_hectares=req.affected_area_hectares,
+            status="submitted",
+            submitted_at=datetime.now(timezone.utc),
+        )
+    )
+    await db.flush()
 
     # Count similar reports (same dealer + same issue type)
-    similar = [
-        r
-        for r in community_reports
-        if r["dealer_name"].strip().lower() == req.dealer_name.strip().lower()
-        and r["issue_type"] == req.issue_type
-        and r["report_id"] != report_id
-    ]
+    similar_result = await db.execute(
+        select(sa_func.count())
+        .select_from(CommunityReport)
+        .where(CommunityReport.dealer_name == req.dealer_name.strip().lower())
+        .where(CommunityReport.issue_type == req.issue_type)
+        .where(CommunityReport.report_id != report_id)
+    )
+    similar_count = int(similar_result.scalar() or 0)
 
     return {
         "report_id": report_id,
         "status": "submitted",
-        "similar_reports_count": len(similar),
+        "similar_reports_count": similar_count,
     }
 
 
@@ -747,40 +793,40 @@ async def get_community_reports(
     dealer_name: Optional[str] = Query(None, description="Filter by dealer name"),
     issue_type: Optional[str] = Query(None, description="Filter by issue type"),
     min_date: Optional[str] = Query(None, description="Minimum date (YYYY-MM-DD)"),
+    db: AsyncSession = Depends(get_db),
 ):
     """Get community reports with optional filtering."""
-    results = list(community_reports)
+    results_query = select(CommunityReport)
 
     if state:
         state_lower = state.strip().lower()
-        results = [
-            r
-            for r in results
-            if r.get("location", {}).get("state", "").strip().lower() == state_lower
-        ]
+        results_query = results_query.where(
+            CommunityReport.location["state"].astext.ilike(state_lower)
+        )
 
     if district:
         district_lower = district.strip().lower()
-        results = [
-            r
-            for r in results
-            if r.get("location", {}).get("district", "").strip().lower()
-            == district_lower
-        ]
+        results_query = results_query.where(
+            CommunityReport.location["district"].astext.ilike(district_lower)
+        )
 
     if dealer_name:
         dealer_lower = dealer_name.strip().lower()
-        results = [
-            r
-            for r in results
-            if r.get("dealer_name", "").strip().lower() == dealer_lower
-        ]
+        results_query = results_query.where(CommunityReport.dealer_name == dealer_lower)
 
     if issue_type:
-        results = [r for r in results if r.get("issue_type") == issue_type]
+        results_query = results_query.where(CommunityReport.issue_type == issue_type)
 
     if min_date:
-        results = [r for r in results if r.get("submitted_at", "") >= min_date]
+        try:
+            min_dt = datetime.fromisoformat(min_date)
+            results_query = results_query.where(CommunityReport.submitted_at >= min_dt)
+        except ValueError:
+            pass
+
+    results = [
+        report.to_dict() for report in (await db.execute(results_query)).scalars().all()
+    ]
 
     # Summary stats
     issue_counts: dict[str, int] = {}
@@ -801,9 +847,9 @@ async def get_community_reports(
 
 
 @app.get("/community/dealer-rating/{dealer_name}")
-async def get_dealer_rating(dealer_name: str):
+async def get_dealer_rating(dealer_name: str, db: AsyncSession = Depends(get_db)):
     """Get aggregated dealer trust score based on community reports."""
-    reports = _get_dealer_reports(dealer_name)
+    reports = await _get_dealer_reports(dealer_name, db)
 
     if not reports:
         return {
@@ -832,12 +878,13 @@ async def get_dealer_rating(dealer_name: str):
 
     # Count verified batches sold by this dealer
     dealer_lower = dealer_name.strip().lower()
-    verified_batches = sum(
-        1
-        for batch in seed_registry.values()
-        if batch.get("manufacturer", "").strip().lower() == dealer_lower
-        and batch.get("manufacturer_verified", False)
+    verified_result = await db.execute(
+        select(sa_func.count())
+        .select_from(SeedBatch)
+        .where(SeedBatch.manufacturer == dealer_lower)
+        .where(SeedBatch.manufacturer_verified.is_(True))
     )
+    verified_batches = int(verified_result.scalar() or 0)
 
     # Recommendation
     if trust_score >= 80:
@@ -889,33 +936,46 @@ async def get_seed_catalog():
 
 
 @app.get("/stats")
-async def get_statistics():
+async def get_statistics(db: AsyncSession = Depends(get_db)):
     """Aggregate statistics for the Beej Suraksha platform."""
-    total_registered = len(seed_registry)
-    total_verifications = len(verification_records)
-    total_reports = len(community_reports)
+    registered_result = await db.execute(select(sa_func.count()).select_from(SeedBatch))
+    total_registered = int(registered_result.scalar() or 0)
+    verifications_result = await db.execute(
+        select(sa_func.count()).select_from(SeedVerification)
+    )
+    total_verifications = int(verifications_result.scalar() or 0)
+    reports_result = await db.execute(
+        select(sa_func.count()).select_from(CommunityReport)
+    )
+    total_reports = int(reports_result.scalar() or 0)
 
     # Count unique flagged dealers (dealers with 2+ fake_seeds reports)
+    fake_reports_result = await db.execute(
+        select(CommunityReport.dealer_name).where(
+            CommunityReport.issue_type == "fake_seeds"
+        )
+    )
     dealer_fake_counts: dict[str, int] = {}
-    for r in community_reports:
-        if r.get("issue_type") == "fake_seeds":
-            dn = r.get("dealer_name", "").strip().lower()
-            dealer_fake_counts[dn] = dealer_fake_counts.get(dn, 0) + 1
+    for dealer in fake_reports_result.scalars().all():
+        dn = dealer.strip().lower()
+        dealer_fake_counts[dn] = dealer_fake_counts.get(dn, 0) + 1
     flagged_dealers = sum(1 for count in dealer_fake_counts.values() if count >= 2)
 
     # Average trust score across all dealers with reports
-    all_dealers: set[str] = set()
-    for r in community_reports:
-        all_dealers.add(r.get("dealer_name", "").strip().lower())
+    all_dealers_result = await db.execute(select(CommunityReport.dealer_name))
+    all_dealers = {
+        dealer.strip().lower() for dealer in all_dealers_result.scalars().all()
+    }
 
     if all_dealers:
         trust_scores = []
         negative_types = {"fake_seeds", "low_germination", "wrong_variety", "expired"}
         for dealer in all_dealers:
+            d_reports_result = await db.execute(
+                select(CommunityReport).where(CommunityReport.dealer_name == dealer)
+            )
             d_reports = [
-                r
-                for r in community_reports
-                if r.get("dealer_name", "").strip().lower() == dealer
+                report.to_dict() for report in d_reports_result.scalars().all()
             ]
             neg = sum(1 for r in d_reports if r.get("issue_type") in negative_types)
             pos = len(d_reports) - neg
@@ -973,34 +1033,7 @@ def _compute_block_hash(previous_hash: str, timestamp: str, data: dict) -> str:
 
 def _get_blockchain(qr_code_id: str) -> list[dict]:
     """Get or initialize the blockchain for a seed batch."""
-    batch = seed_registry.get(qr_code_id)
-    if batch is None:
-        return []
-    if "blockchain" not in batch:
-        # Initialize genesis block from the existing supply chain
-        genesis_data = {
-            "transaction_type": "genesis",
-            "actor_name": batch.get("manufacturer", "Unknown"),
-            "actor_role": "manufacturer",
-            "location": "Beej Suraksha Platform",
-            "notes": "Genesis block — seed batch registered on platform",
-            "seed_variety": batch.get("seed_variety", ""),
-            "batch_number": batch.get("batch_number", ""),
-        }
-        genesis_timestamp = batch.get(
-            "registered_at", datetime.now(timezone.utc).isoformat()
-        )
-        genesis_hash = _compute_block_hash("0" * 64, genesis_timestamp, genesis_data)
-        batch["blockchain"] = [
-            {
-                "block_number": 0,
-                "timestamp": genesis_timestamp,
-                "previous_hash": "0" * 64,
-                "hash": genesis_hash,
-                "data": genesis_data,
-            }
-        ]
-    return batch["blockchain"]
+    return []
 
 
 def _verify_chain_integrity(blockchain: list[dict]) -> tuple[bool, list[str]]:
@@ -1044,7 +1077,9 @@ def _verify_chain_integrity(blockchain: list[dict]) -> tuple[bool, list[str]]:
 
 
 @app.post("/blockchain/add-transaction")
-async def add_blockchain_transaction(req: BlockchainTransactionRequest):
+async def add_blockchain_transaction(
+    req: BlockchainTransactionRequest, db: AsyncSession = Depends(get_db)
+):
     """Add a blockchain transaction to a seed's supply chain.
 
     Creates a new block with SHA-256 hash linked to the previous block,
@@ -1072,14 +1107,44 @@ async def add_blockchain_transaction(req: BlockchainTransactionRequest):
             f"Must be one of: {sorted(valid_actor_roles)}",
         )
 
-    batch = seed_registry.get(req.qr_code_id)
+    batch_result = await db.execute(
+        select(SeedBatch).where(SeedBatch.qr_code_id == req.qr_code_id)
+    )
+    batch = batch_result.scalar_one_or_none()
     if batch is None:
         raise HTTPException(
             status_code=404,
             detail=f"Seed batch with QR code '{req.qr_code_id}' not found in registry.",
         )
 
-    blockchain = _get_blockchain(req.qr_code_id)
+    if not batch.blockchain:
+        genesis_data = {
+            "transaction_type": "genesis",
+            "actor_name": batch.manufacturer or "Unknown",
+            "actor_role": "manufacturer",
+            "location": "Beej Suraksha Platform",
+            "notes": "Genesis block — seed batch registered on platform",
+            "seed_variety": batch.seed_variety or "",
+            "batch_number": batch.batch_number or "",
+        }
+        genesis_timestamp = (
+            batch.registered_at.isoformat()
+            if batch.registered_at
+            else datetime.now(timezone.utc).isoformat()
+        )
+        genesis_hash = _compute_block_hash("0" * 64, genesis_timestamp, genesis_data)
+        batch.blockchain = [
+            {
+                "block_number": 0,
+                "timestamp": genesis_timestamp,
+                "previous_hash": "0" * 64,
+                "hash": genesis_hash,
+                "data": genesis_data,
+            }
+        ]
+        flag_modified(batch, "blockchain")
+
+    blockchain = batch.blockchain
     previous_block = blockchain[-1]
     previous_hash = previous_block["hash"]
 
@@ -1101,9 +1166,11 @@ async def add_blockchain_transaction(req: BlockchainTransactionRequest):
         "data": data,
     }
     blockchain.append(new_block)
+    flag_modified(batch, "blockchain")
 
     # Also append to the legacy supply_chain list for backward compatibility
-    batch.setdefault("supply_chain", []).append(
+    batch.supply_chain = batch.supply_chain or []
+    batch.supply_chain.append(
         {
             "checkpoint": req.transaction_type,
             "location": req.location,
@@ -1113,6 +1180,8 @@ async def add_blockchain_transaction(req: BlockchainTransactionRequest):
             "actor_role": req.actor_role,
         }
     )
+    flag_modified(batch, "supply_chain")
+    await db.flush()
 
     is_valid, issues = _verify_chain_integrity(blockchain)
 
@@ -1128,20 +1197,23 @@ async def add_blockchain_transaction(req: BlockchainTransactionRequest):
 
 
 @app.get("/blockchain/verify-chain/{qr_code_id}")
-async def verify_blockchain_chain(qr_code_id: str):
+async def verify_blockchain_chain(qr_code_id: str, db: AsyncSession = Depends(get_db)):
     """Verify the integrity of a seed's supply chain blockchain.
 
     Recalculates all SHA-256 hashes and checks chain linkage to detect
     any tampering or data corruption in the supply chain history.
     """
-    batch = seed_registry.get(qr_code_id)
+    batch_result = await db.execute(
+        select(SeedBatch).where(SeedBatch.qr_code_id == qr_code_id)
+    )
+    batch = batch_result.scalar_one_or_none()
     if batch is None:
         raise HTTPException(
             status_code=404,
             detail=f"Seed batch with QR code '{qr_code_id}' not found in registry.",
         )
 
-    blockchain = _get_blockchain(qr_code_id)
+    blockchain = batch.blockchain or []
     is_valid, issues = _verify_chain_integrity(blockchain)
 
     return {
@@ -1155,20 +1227,23 @@ async def verify_blockchain_chain(qr_code_id: str):
 
 
 @app.get("/blockchain/trace/{qr_code_id}")
-async def trace_seed_journey(qr_code_id: str):
+async def trace_seed_journey(qr_code_id: str, db: AsyncSession = Depends(get_db)):
     """Full traceability from manufacturer to farmer.
 
     Returns the complete journey of a seed batch through the supply chain
     with visualization-ready data including timeline, actors, and locations.
     """
-    batch = seed_registry.get(qr_code_id)
+    batch_result = await db.execute(
+        select(SeedBatch).where(SeedBatch.qr_code_id == qr_code_id)
+    )
+    batch = batch_result.scalar_one_or_none()
     if batch is None:
         raise HTTPException(
             status_code=404,
             detail=f"Seed batch with QR code '{qr_code_id}' not found in registry.",
         )
 
-    blockchain = _get_blockchain(qr_code_id)
+    blockchain = batch.blockchain or []
     is_valid, issues = _verify_chain_integrity(blockchain)
 
     # Build journey visualization data
@@ -1224,9 +1299,9 @@ async def trace_seed_journey(qr_code_id: str):
 
     return {
         "qr_code_id": qr_code_id,
-        "seed_variety": batch.get("seed_variety", "Unknown"),
-        "batch_number": batch.get("batch_number", "Unknown"),
-        "manufacturer": batch.get("manufacturer", "Unknown"),
+        "seed_variety": batch.seed_variety or "Unknown",
+        "batch_number": batch.batch_number or "Unknown",
+        "manufacturer": batch.manufacturer or "Unknown",
         "current_status": current_status,
         "chain_integrity": {
             "is_valid": is_valid,

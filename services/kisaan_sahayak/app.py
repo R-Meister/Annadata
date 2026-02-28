@@ -12,13 +12,16 @@ from typing import Any
 
 import numpy as np
 import uvicorn
-from fastapi import FastAPI, Query
+from fastapi import Depends, FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from sqlalchemy import delete, func as sa_func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from services.shared.auth.router import router as auth_router, setup_rate_limiting
 from services.shared.config import settings
-from services.shared.db.session import close_db, init_db
+from services.shared.db.models import ChatMessage, ChatSession, FarmerInteractionRecord
+from services.shared.db.session import close_db, get_db, init_db
 
 # ============================================================
 # Knowledge Base
@@ -2063,27 +2066,57 @@ def _format_general_response(message: str) -> dict[str, Any]:
 
 
 # ============================================================
-# Session Management (in-memory)
+# Session Management
 # ============================================================
 
-_sessions: dict[str, list[dict[str, str]]] = {}
+# DB: _sessions -> ChatSession, ChatMessage tables
 
 MAX_SESSION_HISTORY = 20
 
 
-def _get_or_create_session(session_id: str | None) -> tuple[str, list[dict[str, str]]]:
-    if session_id and session_id in _sessions:
-        return session_id, _sessions[session_id]
-    sid = session_id or f"sess-{uuid.uuid4().hex[:12]}"
-    _sessions[sid] = []
-    return sid, _sessions[sid]
+async def _get_or_create_session(
+    session_id: str | None, db: AsyncSession
+) -> tuple[str, list[dict[str, str]]]:
+    session = None
+    if session_id:
+        result = await db.execute(
+            select(ChatSession).where(ChatSession.session_id == session_id)
+        )
+        session = result.scalar_one_or_none()
+
+    if session:
+        sid = session.session_id
+    else:
+        sid = session_id or f"sess-{uuid.uuid4().hex[:12]}"
+        db.add(ChatSession(session_id=sid))
+        await db.flush()
+
+    messages_result = await db.execute(
+        select(ChatMessage)
+        .where(ChatMessage.session_id == sid)
+        .order_by(ChatMessage.id)
+    )
+    messages = messages_result.scalars().all()
+    history = [message.to_dict() for message in messages]
+    return sid, history
 
 
-def _add_to_session(history: list[dict[str, str]], role: str, content: str) -> None:
-    history.append({"role": role, "content": content})
+async def _add_to_session(
+    db: AsyncSession, session_id: str, role: str, content: str
+) -> None:
+    db.add(ChatMessage(session_id=session_id, role=role, content=content))
+    await db.flush()
+
     # Keep only the last N messages
-    if len(history) > MAX_SESSION_HISTORY:
-        del history[: len(history) - MAX_SESSION_HISTORY]
+    old_ids_result = await db.execute(
+        select(ChatMessage.id)
+        .where(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.id.desc())
+        .offset(MAX_SESSION_HISTORY)
+    )
+    old_ids = old_ids_result.scalars().all()
+    if old_ids:
+        await db.execute(delete(ChatMessage).where(ChatMessage.id.in_(old_ids)))
 
 
 # ============================================================
@@ -2286,10 +2319,11 @@ async def root():
 
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
     """Process a farming question and return knowledge-based response."""
-    session_id, history = _get_or_create_session(request.session_id)
-    _add_to_session(history, "user", request.message)
+    session_id, history = await _get_or_create_session(request.session_id, db)
+    await _add_to_session(db, session_id, "user", request.message)
+    history.append({"role": "user", "content": request.message})
 
     intent = _detect_intent(request.message)
     crop = _extract_crop(request.message, request.context)
@@ -2370,7 +2404,7 @@ async def chat(request: ChatRequest):
     else:
         result = _format_general_response(request.message)
 
-    _add_to_session(history, "assistant", result["text"])
+    await _add_to_session(db, session_id, "assistant", result["text"])
 
     return ChatResponse(
         session_id=session_id,
@@ -3323,11 +3357,10 @@ class PipelineResponse(BaseModel):
 
 
 # ============================================================
-# Multi-Agent Pipeline: In-Memory Stores
+# Multi-Agent Pipeline: Stores
 # ============================================================
 
-# Memory Agent store: farmer_id -> list of interactions
-_farmer_memory: dict[str, list[dict[str, Any]]] = {}
+# DB: _farmer_memory -> FarmerInteractionRecord table
 
 # ============================================================
 # Multi-Agent Pipeline: Internal Agent Functions
@@ -3941,7 +3974,7 @@ def _agent_market(crop_type: str, region: str) -> dict[str, Any]:
     }
 
 
-def _agent_memory_log(
+async def _agent_memory_log(
     farmer_id: str,
     interaction_type: str,
     crop_type: str | None = None,
@@ -3949,44 +3982,64 @@ def _agent_memory_log(
     severity: str | None = None,
     location: str | None = None,
     notes: str | None = None,
+    db: AsyncSession | None = None,
 ) -> dict[str, Any]:
     """
-    Memory Agent (Log): Logs a farmer interaction to the in-memory store.
+    Memory Agent (Log): Logs a farmer interaction to the database.
     """
+    if db is None:
+        raise ValueError("db session is required")
     interaction_id = f"int-{uuid.uuid4().hex[:12]}"
     now = datetime.now(timezone.utc)
 
-    interaction = {
-        "interaction_id": interaction_id,
-        "timestamp": now.isoformat(),
-        "interaction_type": interaction_type,
-        "crop_type": crop_type,
-        "disease_detected": disease_detected,
-        "severity": severity,
-        "location": location,
-        "notes": notes,
-    }
+    db.add(
+        FarmerInteractionRecord(
+            farmer_id=farmer_id,
+            interaction_id=interaction_id,
+            interaction_type=interaction_type,
+            crop_type=crop_type,
+            disease_detected=disease_detected,
+            severity=severity,
+            location=location,
+            notes=notes,
+            timestamp=now.isoformat(),
+        )
+    )
+    await db.flush()
 
-    if farmer_id not in _farmer_memory:
-        _farmer_memory[farmer_id] = []
-
-    _farmer_memory[farmer_id].append(interaction)
+    total_result = await db.execute(
+        select(sa_func.count())
+        .select_from(FarmerInteractionRecord)
+        .where(FarmerInteractionRecord.farmer_id == farmer_id)
+    )
+    total_interactions = int(total_result.scalar() or 0)
 
     return {
         "status": "logged",
         "farmer_id": farmer_id,
         "interaction_id": interaction_id,
-        "total_interactions": len(_farmer_memory[farmer_id]),
+        "total_interactions": total_interactions,
         "timestamp": now.isoformat(),
     }
 
 
-def _agent_memory_get(farmer_id: str) -> dict[str, Any]:
+async def _agent_memory_get(
+    farmer_id: str, db: AsyncSession | None = None
+) -> dict[str, Any]:
     """
     Memory Agent (Get): Retrieves farmer history and performs pattern analysis.
     """
+    if db is None:
+        raise ValueError("db session is required")
     now = datetime.now(timezone.utc)
-    interactions = _farmer_memory.get(farmer_id, [])
+    interactions_result = await db.execute(
+        select(FarmerInteractionRecord)
+        .where(FarmerInteractionRecord.farmer_id == farmer_id)
+        .order_by(FarmerInteractionRecord.id)
+    )
+    interactions = [
+        interaction.to_dict() for interaction in interactions_result.scalars().all()
+    ]
 
     # Pattern analysis
     disease_freq: dict[str, int] = defaultdict(int)
@@ -4001,10 +4054,12 @@ def _agent_memory_get(farmer_id: str) -> dict[str, Any]:
         if inter.get("severity"):
             severity_counts[inter["severity"]] += 1
 
-    most_common_crop = max(crop_freq, key=crop_freq.get) if crop_freq else None  # type: ignore[arg-type]
+    most_common_crop = (
+        max(crop_freq, key=lambda key: crop_freq[key]) if crop_freq else None
+    )
     most_common_disease = (
-        max(disease_freq, key=disease_freq.get) if disease_freq else None
-    )  # type: ignore[arg-type]
+        max(disease_freq, key=lambda key: disease_freq[key]) if disease_freq else None
+    )
 
     # Detect recurring issues
     recurring_issues = []
@@ -4316,12 +4371,14 @@ async def agent_market(
 
 
 @app.post("/agent/memory/log", response_model=MemoryLogResponse)
-async def agent_memory_log(request: MemoryLogRequest):
+async def agent_memory_log(
+    request: MemoryLogRequest, db: AsyncSession = Depends(get_db)
+):
     """
     Memory Agent (Log): Record a farmer interaction for profile building
     and pattern analysis.
     """
-    result = _agent_memory_log(
+    result = await _agent_memory_log(
         farmer_id=request.farmer_id,
         interaction_type=request.interaction_type,
         crop_type=request.crop_type,
@@ -4329,16 +4386,17 @@ async def agent_memory_log(request: MemoryLogRequest):
         severity=request.severity,
         location=request.location,
         notes=request.notes,
+        db=db,
     )
     return MemoryLogResponse(**result)
 
 
 @app.get("/agent/memory/{farmer_id}", response_model=MemoryGetResponse)
-async def agent_memory_get(farmer_id: str):
+async def agent_memory_get(farmer_id: str, db: AsyncSession = Depends(get_db)):
     """
     Memory Agent (Get): Retrieve farmer interaction history and pattern analysis.
     """
-    result = _agent_memory_get(farmer_id=farmer_id)
+    result = await _agent_memory_get(farmer_id=farmer_id, db=db)
     return MemoryGetResponse(**result)
 
 
@@ -4360,7 +4418,9 @@ async def agent_llm(request: LLMRequest):
 
 
 @app.post("/pipeline/analyze", response_model=PipelineResponse)
-async def pipeline_analyze(request: PipelineRequest):
+async def pipeline_analyze(
+    request: PipelineRequest, db: AsyncSession = Depends(get_db)
+):
     """
     Full Multi-Agent Pipeline: The crown jewel.
 
@@ -4405,7 +4465,7 @@ async def pipeline_analyze(request: PipelineRequest):
     )
 
     # 5. Memory Agent — log this interaction
-    memory_result = _agent_memory_log(
+    memory_result = await _agent_memory_log(
         farmer_id=request.farmer_id,
         interaction_type="pipeline_analysis",
         crop_type=request.crop_type,
@@ -4413,6 +4473,7 @@ async def pipeline_analyze(request: PipelineRequest):
         severity=verify_result.get("severity"),
         location=request.region,
         notes=f"Pipeline {pipeline_id}: {disease_name} ({confidence:.1%})",
+        db=db,
     )
 
     # 6. LLM Agent — generate comprehensive summary

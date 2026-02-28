@@ -10,13 +10,16 @@ from typing import Optional
 
 import numpy as np
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from sqlalchemy import func as sa_func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from services.shared.auth.router import router as auth_router, setup_rate_limiting
 from services.shared.config import settings
-from services.shared.db.session import close_db, init_db
+from services.shared.db.models import ConnectionLog, RouteLog
+from services.shared.db.session import close_db, get_db, init_db
 
 # ---------------------------------------------------------------------------
 # Cold-storage facility database (realistic Indian locations)
@@ -628,11 +631,11 @@ RETAILER_DB: list[dict] = [
 ]
 
 # ---------------------------------------------------------------------------
-# In-memory stores for tracking
+# Stores for tracking
 # ---------------------------------------------------------------------------
 
-_connections_log: list[dict] = []
-_routes_log: list[dict] = []
+# DB: _connections_log -> ConnectionLog table
+# DB: _routes_log -> RouteLog table
 
 # ---------------------------------------------------------------------------
 # Pydantic models
@@ -962,7 +965,9 @@ async def predict_demand(body: DemandPredictRequest):
 
 
 @app.post("/logistics/optimize-route")
-async def optimize_route(body: OptimizeRouteRequest):
+async def optimize_route(
+    body: OptimizeRouteRequest, db: AsyncSession = Depends(get_db)
+):
     """Optimize delivery route using nearest-neighbor TSP solver.
 
     Returns an ordered list of destinations, total distance, estimated time,
@@ -1002,13 +1007,14 @@ async def optimize_route(body: OptimizeRouteRequest):
     freshness_index = round(max(0.0, 1.0 - (estimated_hours / max_hours)), 2)
 
     # Log the route
-    _routes_log.append(
-        {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "total_distance_km": round(total_distance, 2),
-            "tonnes": round(total_demand, 2),
-        }
+    db.add(
+        RouteLog(
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            total_distance_km=round(total_distance, 2),
+            tonnes=round(total_demand, 2),
+        )
     )
+    await db.flush()
 
     return {
         "optimized_route": optimized_route,
@@ -1026,7 +1032,9 @@ async def optimize_route(body: OptimizeRouteRequest):
 
 
 @app.post("/connect/farmer-retailer")
-async def connect_farmer_retailer(body: ConnectRequest):
+async def connect_farmer_retailer(
+    body: ConnectRequest, db: AsyncSession = Depends(get_db)
+):
     """Match a farmer's produce with suitable retailers.
 
     Scores retailers based on crop match, city preference, price premium,
@@ -1090,15 +1098,16 @@ async def connect_farmer_retailer(body: ConnectRequest):
     )
 
     # Log the connection
-    _connections_log.append(
-        {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "farmer_id": body.farmer_id,
-            "crop": crop_key,
-            "quantity_tonnes": body.quantity_tonnes,
-            "matches": len(matched),
-        }
+    db.add(
+        ConnectionLog(
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            farmer_id=body.farmer_id,
+            crop=crop_key,
+            quantity_tonnes=body.quantity_tonnes,
+            matches=len(matched),
+        )
     )
+    await db.flush()
 
     return {
         "farmer_id": body.farmer_id,
@@ -1170,15 +1179,25 @@ async def get_harvest_window(
 
 
 @app.get("/stats")
-async def get_stats():
+async def get_stats(db: AsyncSession = Depends(get_db)):
     """Aggregate service statistics."""
-    total_connections = len(_connections_log)
-    total_tonnes = sum(r.get("tonnes", 0) for r in _routes_log)
-    total_routes = len(_routes_log)
+    connections_result = await db.execute(
+        select(sa_func.count())
+        .select_from(ConnectionLog)
+        .where(ConnectionLog.farmer_id.isnot(None))
+    )
+    total_connections = int(connections_result.scalar() or 0)
+    total_tonnes_result = await db.execute(select(RouteLog.tonnes))
+    total_tonnes = float(sum(total_tonnes_result.scalars().all() or [0.0]))
+    total_routes_result = await db.execute(
+        select(sa_func.count()).select_from(RouteLog)
+    )
+    total_routes = int(total_routes_result.scalar() or 0)
 
     # Average distance saved (simulated baseline comparison)
     if total_routes > 0:
-        total_actual = sum(r["total_distance_km"] for r in _routes_log)
+        total_actual_result = await db.execute(select(RouteLog.total_distance_km))
+        total_actual = float(sum(total_actual_result.scalars().all() or [0.0]))
         # Assume naïve route would be ~30 % longer
         naive_total = total_actual * 1.30
         avg_distance_saved_pct = round(

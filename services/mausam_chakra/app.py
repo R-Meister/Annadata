@@ -24,13 +24,16 @@ from uuid import uuid4
 
 import numpy as np
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from sqlalchemy import func as sa_func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from services.shared.auth.router import router as auth_router, setup_rate_limiting
 from services.shared.config import settings
-from services.shared.db.session import close_db, init_db
+from services.shared.db.models import ForecastStats, WeatherStation
+from services.shared.db.session import close_db, get_db, init_db
 
 # ============================================================
 # Village Code → Coordinate & Climate Profile Mapping
@@ -639,22 +642,14 @@ WIND_DIRECTIONS = [
 ]
 
 # ============================================================
-# In-memory Stores
+# Stores
 # ============================================================
 
-# IoT station registry: station_id → {station data + last reading}
-_station_registry: dict[str, dict] = {}
-
-# Forecast cache: village_code → {generated_at, forecasts}
+# DB: _station_registry -> WeatherStation table
+# DB: _stats -> ForecastStats table
+# In-memory cache/alerts remain
 _forecast_cache: dict[str, dict] = {}
-
-# Active alerts: list of alert dicts
 _active_alerts: list[dict] = []
-
-# Stats counters
-_stats = {
-    "total_forecasts_generated": 0,
-}
 
 # ============================================================
 # Enums
@@ -1121,7 +1116,6 @@ def _generate_hourly_forecast(village_code: str, hours: int) -> list[dict]:
             }
         )
 
-    _stats["total_forecasts_generated"] += 1
     return forecasts
 
 
@@ -1497,6 +1491,7 @@ async def get_forecast(
     hours: int = Query(
         default=24, ge=1, le=72, description="Number of hours to forecast (max 72)"
     ),
+    db: AsyncSession = Depends(get_db),
 ):
     """Get hour-by-hour weather forecast for a village.
 
@@ -1512,6 +1507,15 @@ async def get_forecast(
 
     village = VILLAGE_REGISTRY[village_code]
     forecasts = _generate_hourly_forecast(village_code, hours)
+
+    update_result = await db.execute(
+        update(ForecastStats)
+        .where(ForecastStats.id == 1)
+        .values(total_forecasts_generated=ForecastStats.total_forecasts_generated + 1)
+    )
+    if update_result.rowcount == 0:  # type: ignore[attr-defined]
+        db.add(ForecastStats(id=1, total_forecasts_generated=1))
+    await db.flush()
 
     return ForecastResponse(
         village_code=village_code,
@@ -1559,7 +1563,9 @@ async def get_weather_alerts(body: AlertRequest):
     response_model=IoTIngestResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def ingest_station_data(body: IoTStationDataRequest):
+async def ingest_station_data(
+    body: IoTStationDataRequest, db: AsyncSession = Depends(get_db)
+):
     """Ingest IoT weather station data.
 
     Validates readings against physical limits and stores in the
@@ -1577,20 +1583,36 @@ async def ingest_station_data(body: IoTStationDataRequest):
             min_dist = dist
             nearest_village = info
 
-    station_record = {
-        "station_id": body.station_id,
-        "latitude": body.latitude,
-        "longitude": body.longitude,
-        "last_reading_time": body.timestamp,
-        "last_ingested_at": now.isoformat(),
-        "readings": body.readings.model_dump(),
-        "quality_flags": quality_flags,
-        "state": nearest_village["state"] if nearest_village else None,
-        "district": nearest_village["district"] if nearest_village else None,
-        "status": "active",
-    }
-
-    _station_registry[body.station_id] = station_record
+    station_result = await db.execute(
+        select(WeatherStation).where(WeatherStation.station_id == body.station_id)
+    )
+    station = station_result.scalar_one_or_none()
+    if station:
+        station.latitude = body.latitude
+        station.longitude = body.longitude
+        station.last_reading_time = body.timestamp
+        station.last_ingested_at = now.isoformat()
+        station.readings = body.readings.model_dump()
+        station.quality_flags = quality_flags
+        station.state = nearest_village["state"] if nearest_village else None
+        station.district = nearest_village["district"] if nearest_village else None
+        station.status = "active"
+    else:
+        db.add(
+            WeatherStation(
+                station_id=body.station_id,
+                latitude=body.latitude,
+                longitude=body.longitude,
+                last_reading_time=body.timestamp,
+                last_ingested_at=now.isoformat(),
+                readings=body.readings.model_dump(),
+                quality_flags=quality_flags,
+                state=nearest_village["state"] if nearest_village else None,
+                district=nearest_village["district"] if nearest_village else None,
+                status="active",
+            )
+        )
+    await db.flush()
 
     return IoTIngestResponse(
         ingested=True,
@@ -1610,40 +1632,48 @@ async def list_stations(
     state: Optional[str] = Query(default=None, description="Filter by state"),
     district: Optional[str] = Query(default=None, description="Filter by district"),
     active_only: bool = Query(default=True, description="Show only active stations"),
+    db: AsyncSession = Depends(get_db),
 ):
     """List registered IoT weather stations with optional filters."""
     now = datetime.now(timezone.utc)
     stations = []
 
-    for sid, sdata in _station_registry.items():
+    stations_result = await db.execute(select(WeatherStation))
+    for station in stations_result.scalars().all():
         # Filter by state
-        if state and sdata.get("state", "").lower() != state.lower():
+        if state and (station.state or "").lower() != state.lower():
             continue
         # Filter by district
-        if district and sdata.get("district", "").lower() != district.lower():
+        if district and (station.district or "").lower() != district.lower():
             continue
 
         # Determine active status: station is active if last reading was within 1 hour
         try:
-            last_time = datetime.fromisoformat(sdata["last_ingested_at"])
+            last_time = (
+                datetime.fromisoformat(station.last_ingested_at)
+                if station.last_ingested_at
+                else None
+            )
+            if not last_time:
+                raise ValueError("missing last_ingested_at")
             is_active = (now - last_time).total_seconds() < 3600
         except (KeyError, ValueError):
             is_active = False
 
-        sdata["status"] = "active" if is_active else "inactive"
+        station.status = "active" if is_active else "inactive"
 
         if active_only and not is_active:
             continue
 
         stations.append(
             StationInfo(
-                station_id=sid,
-                latitude=sdata["latitude"],
-                longitude=sdata["longitude"],
-                last_reading_time=sdata["last_reading_time"],
-                status=sdata["status"],
-                state=sdata.get("state"),
-                district=sdata.get("district"),
+                station_id=station.station_id,
+                latitude=station.latitude,
+                longitude=station.longitude,
+                last_reading_time=station.last_reading_time,
+                status=station.status,
+                state=station.state,
+                district=station.district,
             )
         )
 
@@ -2010,23 +2040,35 @@ async def get_historical_weather(
 
 
 @app.get("/stats", response_model=StatsResponse)
-async def get_stats():
+async def get_stats(db: AsyncSession = Depends(get_db)):
     """Aggregate service statistics."""
     now = datetime.now(timezone.utc)
 
     active_stations = 0
-    for sdata in _station_registry.values():
+    stations_result = await db.execute(select(WeatherStation))
+    stations = stations_result.scalars().all()
+    for station in stations:
         try:
-            last_time = datetime.fromisoformat(sdata["last_ingested_at"])
+            last_time = (
+                datetime.fromisoformat(station.last_ingested_at)
+                if station.last_ingested_at
+                else None
+            )
+            if not last_time:
+                raise ValueError("missing last_ingested_at")
             if (now - last_time).total_seconds() < 3600:
                 active_stations += 1
         except (KeyError, ValueError):
             pass
 
+    stats_result = await db.execute(select(ForecastStats).where(ForecastStats.id == 1))
+    stats = stats_result.scalar_one_or_none()
+    total_forecasts = stats.total_forecasts_generated if stats else 0
+
     return StatsResponse(
-        total_stations=len(_station_registry),
+        total_stations=len(stations),
         active_stations=active_stations,
-        total_forecasts_generated=_stats["total_forecasts_generated"],
+        total_forecasts_generated=total_forecasts,
         active_alerts_count=len(_active_alerts),
         coverage_villages=len(VILLAGE_REGISTRY),
     )

@@ -20,19 +20,21 @@ from typing import Literal
 
 import numpy as np
 import uvicorn
-from fastapi import FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from sqlalchemy import func as sa_func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from services.shared.auth.router import router as auth_router, setup_rate_limiting
 from services.shared.config import settings
-from services.shared.db.session import close_db, init_db
+from services.shared.db.models import CreditScore
+from services.shared.db.session import close_db, get_db, init_db
 
 # ---------------------------------------------------------------------------
-# In-memory credit score store
+# Credit score store
 # ---------------------------------------------------------------------------
-# Keyed by score_id (str) → CreditScoreResponse dict.
-_score_store: dict[str, dict] = {}
+# DB: _score_store -> CreditScore table
 
 # ---------------------------------------------------------------------------
 # Regional weather risk mapping for major Indian states
@@ -439,7 +441,9 @@ def _market_diversification_score(
     return total_score, details
 
 
-def _calculate_credit_score(req: CreditScoreRequest) -> CreditScoreResponse:
+async def _calculate_credit_score(
+    req: CreditScoreRequest, db: AsyncSession
+) -> CreditScoreResponse:
     """
     Core credit scoring pipeline.
 
@@ -539,7 +543,24 @@ def _calculate_credit_score(req: CreditScoreRequest) -> CreditScoreResponse:
     )
 
     # Persist for later retrieval
-    _score_store[score_id] = result.model_dump()
+    db.add(
+        CreditScore(
+            score_id=score_id,
+            farmer_id=req.farmer_id,
+            credit_score=credit_score,
+            grade=grade,
+            components=[component.model_dump() for component in components],
+            loan_eligibility=loan_eligible,
+            max_loan_amount=max_loan,
+            interest_rate_suggestion=interest_rate,
+            region=req.region,
+            land_area_hectares=req.land_area_hectares,
+            crop_types=req.crop_types,
+            years_farming=req.years_farming,
+            calculated_at=now,
+        )
+    )
+    await db.flush()
 
     return result
 
@@ -624,7 +645,9 @@ async def root():
     response_model=CreditScoreResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def calculate_credit_score(req: CreditScoreRequest):
+async def calculate_credit_score(
+    req: CreditScoreRequest, db: AsyncSession = Depends(get_db)
+):
     """
     Calculate a farmer's credit score.
 
@@ -633,23 +656,26 @@ async def calculate_credit_score(req: CreditScoreRequest):
     a total score of 0-100.  Also computes loan eligibility, maximum
     loan amount, and a suggested interest rate.
     """
-    return _calculate_credit_score(req)
+    return await _calculate_credit_score(req, db)
 
 
 @app.get("/credit-score/{score_id}", response_model=CreditScoreResponse)
-async def get_credit_score(score_id: str):
+async def get_credit_score(score_id: str, db: AsyncSession = Depends(get_db)):
     """
     Retrieve a previously calculated credit score by its ID.
 
     Returns 404 if the score_id is not found in the in-memory store.
     """
-    record = _score_store.get(score_id)
+    result = await db.execute(
+        select(CreditScore).where(CreditScore.score_id == score_id)
+    )
+    record = result.scalar_one_or_none()
     if record is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Credit score '{score_id}' not found.",
         )
-    return record
+    return record.to_dict()
 
 
 @app.post(
@@ -657,7 +683,9 @@ async def get_credit_score(score_id: str):
     response_model=BatchCreditScoreResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def batch_calculate(body: BatchCreditScoreRequest):
+async def batch_calculate(
+    body: BatchCreditScoreRequest, db: AsyncSession = Depends(get_db)
+):
     """
     Batch-calculate credit scores for multiple farmers.
 
@@ -669,19 +697,21 @@ async def batch_calculate(body: BatchCreditScoreRequest):
             detail="At least one farmer record is required.",
         )
 
-    results = [_calculate_credit_score(f) for f in body.farmers]
+    results = [await _calculate_credit_score(f, db) for f in body.farmers]
     return BatchCreditScoreResponse(results=results, count=len(results))
 
 
 @app.get("/credit-score/stats", response_model=AggregateStats)
-async def get_aggregate_stats():
+async def get_aggregate_stats(db: AsyncSession = Depends(get_db)):
     """
     Get aggregate statistics across all calculated credit scores.
 
     Returns total count, average score, grade distribution, and average
     loan amount.
     """
-    if not _score_store:
+    total_result = await db.execute(select(sa_func.count()).select_from(CreditScore))
+    total_scores = int(total_result.scalar() or 0)
+    if total_scores == 0:
         return AggregateStats(
             total_scores_calculated=0,
             average_score=0.0,
@@ -689,13 +719,12 @@ async def get_aggregate_stats():
             avg_loan_amount=0.0,
         )
 
-    scores = np.array(
-        [v["credit_score"] for v in _score_store.values()], dtype=np.float64
-    )
-    loan_amounts = np.array(
-        [v["max_loan_amount"] for v in _score_store.values()], dtype=np.float64
-    )
-    grades = [v["grade"] for v in _score_store.values()]
+    scores_result = await db.execute(select(CreditScore.credit_score))
+    scores = np.array(scores_result.scalars().all(), dtype=np.float64)
+    loans_result = await db.execute(select(CreditScore.max_loan_amount))
+    loan_amounts = np.array(loans_result.scalars().all(), dtype=np.float64)
+    grades_result = await db.execute(select(CreditScore.grade))
+    grades = grades_result.scalars().all()
 
     grade_dist = dict(Counter(grades))
     # Ensure all grades present
@@ -703,7 +732,7 @@ async def get_aggregate_stats():
         grade_dist.setdefault(g, 0)
 
     return AggregateStats(
-        total_scores_calculated=len(_score_store),
+        total_scores_calculated=total_scores,
         average_score=round(float(np.mean(scores)), 2),
         grade_distribution=grade_dist,
         avg_loan_amount=round(float(np.mean(loan_amounts)), 2),
