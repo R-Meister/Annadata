@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import Link from "next/link";
 import {
   Card,
@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useServicesStore } from "@/store/services-store";
+import { CHART_COLORS } from "@/components/dashboard/chart-theme";
+import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 
 /* ------------------------------------------------------------------
    Service catalogue - static data for the overview grid
@@ -107,13 +109,6 @@ const services = [
   },
 ] as const;
 
-const quickStats = [
-  { label: "Active Services", value: "11" },
-  { label: "Data Records", value: "1.1M+" },
-  { label: "ML Models", value: "15+" },
-  { label: "Quantum Strategies", value: "3" },
-] as const;
-
 const recentActivity = [
   "MSP Mitra model retrained on latest Agmarknet data",
   "SoilScan AI processed 12 new satellite tiles for Maharashtra",
@@ -128,7 +123,7 @@ const recentActivity = [
 ] as const;
 
 /* ------------------------------------------------------------------
-   Dashboard Page (Server Component)
+   Dashboard Page
    ------------------------------------------------------------------ */
 
 export default function DashboardPage() {
@@ -137,6 +132,58 @@ export default function DashboardPage() {
   useEffect(() => {
     void checkAllServices();
   }, [checkAllServices]);
+
+  /* ---- Derived counts for the donut chart ---- */
+  const healthCounts = useMemo(() => {
+    let healthy = 0;
+    let unhealthy = 0;
+    let unknown = 0;
+
+    for (const key of Object.keys(statusMap)) {
+      const status = statusMap[key]?.status;
+      if (status === "healthy") healthy++;
+      else if (status === "unhealthy") unhealthy++;
+      else unknown++;
+    }
+
+    return { healthy, unhealthy, unknown, total: healthy + unhealthy + unknown };
+  }, [statusMap]);
+
+  const pieData = useMemo(
+    () => [
+      { name: "Healthy", value: healthCounts.healthy, color: CHART_COLORS.success },
+      { name: "Unhealthy", value: healthCounts.unhealthy, color: CHART_COLORS.error },
+      { name: "Unknown", value: healthCounts.unknown, color: "#9ca3af" },
+    ],
+    [healthCounts],
+  );
+
+  /* ---- Dynamic quick stats ---- */
+  const quickStats = useMemo(
+    () => [
+      {
+        label: "Active Services",
+        value: `${healthCounts.healthy}`,
+        accent: "border-l-green-500",
+      },
+      {
+        label: "Data Records",
+        value: "1.1M+",
+        accent: "border-l-sky-500",
+      },
+      {
+        label: "ML Models",
+        value: "15+",
+        accent: "border-l-amber-500",
+      },
+      {
+        label: "Quantum Strategies",
+        value: "3",
+        accent: "border-l-purple-500",
+      },
+    ],
+    [healthCounts.healthy],
+  );
 
   return (
     <div className="space-y-8">
@@ -153,7 +200,7 @@ export default function DashboardPage() {
       {/* Quick stats */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         {quickStats.map((stat) => (
-          <Card key={stat.label}>
+          <Card key={stat.label} className={`border-l-4 ${stat.accent}`}>
             <CardHeader className="pb-2">
               <CardDescription className="text-xs uppercase tracking-wide">
                 {stat.label}
@@ -165,6 +212,64 @@ export default function DashboardPage() {
           </Card>
         ))}
       </div>
+
+      {/* Service Health Donut Chart */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Service Health</CardTitle>
+          <CardDescription>
+            Real-time health status across all platform services
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex items-center justify-center gap-8">
+          <div className="relative h-[180px] w-[180px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={pieData}
+                  dataKey="value"
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={50}
+                  outerRadius={70}
+                  strokeWidth={2}
+                >
+                  {pieData.map((entry, idx) => (
+                    <Cell key={idx} fill={entry.color} stroke="none" />
+                  ))}
+                </Pie>
+              </PieChart>
+            </ResponsiveContainer>
+            {/* Center label */}
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-lg font-bold text-[var(--color-text)]">
+                {healthCounts.healthy}/{healthCounts.total}
+              </span>
+              <span className="text-xs text-[var(--color-text-muted)]">
+                healthy
+              </span>
+            </div>
+          </div>
+
+          {/* Legend */}
+          <div className="flex flex-col gap-3 text-sm">
+            {pieData.map((entry) => (
+              <div key={entry.name} className="flex items-center gap-2">
+                <span
+                  className="inline-block h-3 w-3 rounded-full"
+                  style={{ backgroundColor: entry.color }}
+                />
+                <span className="text-[var(--color-text-muted)]">
+                  {entry.name}
+                </span>
+                <span className="font-semibold text-[var(--color-text)]">
+                  {entry.value}
+                </span>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Service status grid */}
       <section>

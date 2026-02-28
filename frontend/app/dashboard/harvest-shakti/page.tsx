@@ -2,6 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Cell,
+} from "recharts";
+import {
   Card,
   CardHeader,
   CardTitle,
@@ -11,6 +21,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { API_PREFIXES } from "@/lib/utils";
+import { CHART_COLORS, CHART_DEFAULTS } from "@/components/dashboard/chart-theme";
 
 type PlotRegistrationResponse = {
   plot_id: string;
@@ -95,6 +106,25 @@ export default function HarvestShaktiPage() {
     return `${yieldEstimate.confidence_interval.low_tonnes} - ${yieldEstimate.confidence_interval.high_tonnes}`;
   }, [yieldEstimate]);
 
+  const weatherRiskData = useMemo(() => {
+    if (!harvestWindow?.weather_risk) return [];
+    const { rain_probability_pct, heatwave_risk, frost_risk } = harvestWindow.weather_risk;
+    return [
+      { risk: "Rain", value: rain_probability_pct },
+      { risk: "Heatwave", value: heatwave_risk * 100 },
+      { risk: "Frost", value: frost_risk * 100 },
+    ];
+  }, [harvestWindow]);
+
+  const mandiPriceData = useMemo(
+    () =>
+      market?.nearby_mandis?.map((m) => ({
+        name: m.name,
+        price: m.price_per_quintal,
+      })) ?? [],
+    [market],
+  );
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -177,13 +207,61 @@ export default function HarvestShaktiPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">
-                <p className="text-sm text-[var(--color-text-muted)]">
-                  {harvestWindow
-                    ? `Best: ${new Date(harvestWindow.optimal_harvest_window.best_date).toLocaleDateString()}`
-                    : "Harvest timeline will appear here"}
-                </p>
-              </div>
+              {weatherRiskData.length > 0 ? (
+                <div style={{ width: "100%", height: 160 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={weatherRiskData}
+                      margin={CHART_DEFAULTS.margin}
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke={CHART_DEFAULTS.gridStroke}
+                      />
+                      <XAxis
+                        dataKey="risk"
+                        tick={{ fontSize: CHART_DEFAULTS.fontSize, fill: CHART_DEFAULTS.axisStroke }}
+                        stroke={CHART_DEFAULTS.axisStroke}
+                      />
+                      <YAxis
+                        domain={[0, 100]}
+                        tickFormatter={(v: number) => `${v}%`}
+                        tick={{ fontSize: CHART_DEFAULTS.fontSize, fill: CHART_DEFAULTS.axisStroke }}
+                        stroke={CHART_DEFAULTS.axisStroke}
+                      />
+                      <Tooltip
+                        contentStyle={CHART_DEFAULTS.tooltipStyle}
+                        formatter={(value: number) => [`${value.toFixed(1)}%`, "Risk"]}
+                      />
+                      <Bar
+                        dataKey="value"
+                        radius={[4, 4, 0, 0]}
+                        animationDuration={CHART_DEFAULTS.animationDuration}
+                        animationEasing={CHART_DEFAULTS.animationEasing}
+                      >
+                        {weatherRiskData.map((entry, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={
+                              entry.value > 60
+                                ? CHART_COLORS.error
+                                : entry.value >= 30
+                                  ? CHART_COLORS.warning
+                                  : CHART_COLORS.success
+                            }
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">
+                  <p className="text-sm text-[var(--color-text-muted)]">
+                    Harvest timeline will appear here
+                  </p>
+                </div>
+              )}
               <ul className="space-y-2 text-sm text-[var(--color-text-muted)]">
                 <li className="flex justify-between">
                   <span>Recommended Start</span>
@@ -224,11 +302,48 @@ export default function HarvestShaktiPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">
-                <p className="text-sm text-[var(--color-text-muted)]">
-                  {market ? `Trend: ${market.price_trend}` : "Price forecast chart will appear here"}
-                </p>
-              </div>
+              {mandiPriceData.length > 0 ? (
+                <div style={{ width: "100%", height: 160 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={mandiPriceData}
+                      margin={CHART_DEFAULTS.margin}
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke={CHART_DEFAULTS.gridStroke}
+                      />
+                      <XAxis
+                        dataKey="name"
+                        tick={{ fontSize: CHART_DEFAULTS.fontSize, fill: CHART_DEFAULTS.axisStroke }}
+                        stroke={CHART_DEFAULTS.axisStroke}
+                      />
+                      <YAxis
+                        tickFormatter={(v: number) => `₹${v}`}
+                        tick={{ fontSize: CHART_DEFAULTS.fontSize, fill: CHART_DEFAULTS.axisStroke }}
+                        stroke={CHART_DEFAULTS.axisStroke}
+                      />
+                      <Tooltip
+                        contentStyle={CHART_DEFAULTS.tooltipStyle}
+                        formatter={(value: number) => [`₹${value.toLocaleString("en-IN")}`, "Price"]}
+                      />
+                      <Bar
+                        dataKey="price"
+                        fill={CHART_COLORS.primary}
+                        radius={[4, 4, 0, 0]}
+                        animationDuration={CHART_DEFAULTS.animationDuration}
+                        animationEasing={CHART_DEFAULTS.animationEasing}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">
+                  <p className="text-sm text-[var(--color-text-muted)]">
+                    Price forecast chart will appear here
+                  </p>
+                </div>
+              )}
               <ul className="space-y-2 text-sm text-[var(--color-text-muted)]">
                 <li className="flex justify-between">
                   <span>Best Sell Window</span>

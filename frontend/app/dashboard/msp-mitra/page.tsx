@@ -2,6 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
+import {
   Card,
   CardHeader,
   CardTitle,
@@ -11,6 +20,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { API_PREFIXES } from "@/lib/utils";
+import { CHART_COLORS, CHART_DEFAULTS } from "@/components/dashboard/chart-theme";
 
 const commodities = ["Rice", "Wheat", "Maize", "Cotton", "Soybean"] as const;
 const states = [
@@ -43,6 +53,15 @@ export default function MspMitraPage() {
     const first = predictions[0];
     return first.predicted_price ?? first.price ?? null;
   }, [predictions]);
+
+  const chartData = useMemo(
+    () =>
+      predictions.map((p, i) => ({
+        date: p.date ?? `Day ${i + 1}`,
+        price: p.predicted_price ?? p.price ?? 0,
+      })),
+    [predictions],
+  );
 
   useEffect(() => {
     const load = async () => {
@@ -175,24 +194,70 @@ export default function MspMitraPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">
-            <p className="text-sm text-[var(--color-text-muted)]">
-              {loading
-                ? "Loading price trend..."
-                : predictions.length
-                  ? `Latest forecast: ₹${
-                      predictions[predictions.length - 1].predicted_price ??
-                      predictions[predictions.length - 1].price ??
-                      "--"
-                    }/q`
-                  : "Price chart will appear here"}
-            </p>
-            {currentPrice ? (
-              <p className="text-xs text-[var(--color-text-muted)]">
-                Current predicted price: ₹{currentPrice}/q
+          {loading ? (
+            <div className="flex h-60 items-center justify-center">
+              <p className="text-sm text-[var(--color-text-muted)]">
+                Loading price trend...
               </p>
-            ) : null}
-          </div>
+            </div>
+          ) : chartData.length ? (
+            <ResponsiveContainer width="100%" height={240}>
+              <AreaChart
+                data={chartData}
+                margin={CHART_DEFAULTS.margin}
+              >
+                <defs>
+                  <linearGradient id="priceFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop
+                      offset="5%"
+                      stopColor={CHART_COLORS.primary}
+                      stopOpacity={0.2}
+                    />
+                    <stop
+                      offset="95%"
+                      stopColor={CHART_COLORS.primary}
+                      stopOpacity={0}
+                    />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke={CHART_DEFAULTS.gridStroke}
+                />
+                <XAxis
+                  dataKey="date"
+                  stroke={CHART_DEFAULTS.axisStroke}
+                  fontSize={CHART_DEFAULTS.fontSize}
+                  tickLine={false}
+                />
+                <YAxis
+                  stroke={CHART_DEFAULTS.axisStroke}
+                  fontSize={CHART_DEFAULTS.fontSize}
+                  tickLine={false}
+                  tickFormatter={(v: number) => `₹${v}`}
+                />
+                <Tooltip
+                  contentStyle={CHART_DEFAULTS.tooltipStyle}
+                  formatter={(value: number) => [`₹${value}`, "Price"]}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="price"
+                  stroke={CHART_COLORS.primary}
+                  fill="url(#priceFill)"
+                  strokeWidth={2}
+                  animationDuration={CHART_DEFAULTS.animationDuration}
+                  animationEasing={CHART_DEFAULTS.animationEasing}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex h-60 items-center justify-center">
+              <p className="text-sm text-[var(--color-text-muted)]">
+                No price data available. Select a commodity and state above.
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -219,9 +284,11 @@ export default function MspMitraPage() {
                 ))}
               </ul>
             ) : (
-              <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">
+              <div className="flex h-40 items-center justify-center">
                 <p className="text-sm text-[var(--color-text-muted)]">
-                  Prediction panel &mdash; connect to MSP Mitra API
+                  {loading
+                    ? "Loading predictions..."
+                    : "No predictions available for the selected commodity and state."}
                 </p>
               </div>
             )}
@@ -253,9 +320,27 @@ export default function MspMitraPage() {
               <li className="flex justify-between">
                 <span>30-day Volatility</span>
                 <span className="font-medium text-[var(--color-text)]">
-                  {volatility !== null ? volatility : "--"}
+                  {volatility !== null ? `${volatility.toFixed(1)}%` : "--"}
                 </span>
               </li>
+              {volatility !== null && (
+                <li>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--color-border)]">
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{
+                        width: `${Math.min(volatility, 100)}%`,
+                        backgroundColor:
+                          volatility > 60
+                            ? CHART_COLORS.error
+                            : volatility > 30
+                              ? CHART_COLORS.secondary
+                              : CHART_COLORS.primary,
+                      }}
+                    />
+                  </div>
+                </li>
+              )}
               <li className="flex justify-between">
                 <span>Price Spread (Min–Max)</span>
                 <span className="font-medium text-[var(--color-text)]">

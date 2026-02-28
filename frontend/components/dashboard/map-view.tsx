@@ -52,7 +52,7 @@ export function MapView({
       import("leaflet"),
     ]).then(([rl, leaflet]) => {
       // Fix default marker icons
-      delete (leaflet.Icon.Default.prototype as Record<string, unknown>)._getIconUrl;
+      delete (leaflet.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
       leaflet.Icon.Default.mergeOptions({
         iconRetinaUrl:
           "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",

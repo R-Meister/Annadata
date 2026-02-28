@@ -11,6 +11,17 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { API_PREFIXES } from "@/lib/utils";
+import { CHART_COLORS, CHART_DEFAULTS } from "@/components/dashboard/chart-theme";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Cell,
+} from "recharts";
 
 type DetectionResponse = {
   detection_id: string;
@@ -61,6 +72,15 @@ export default function FasalRakshakPage() {
     if (!detection) return "Awaiting Upload";
     return detection.disease_detected ? "Detected" : "No Disease";
   }, [detection]);
+
+  const confidenceData = useMemo(
+    () =>
+      detection?.top_matches?.map((m) => ({
+        name: m.name,
+        confidence: Math.round(m.confidence * 100),
+      })) ?? [],
+    [detection],
+  );
 
   async function runDetection() {
     setStatus("loading");
@@ -196,13 +216,67 @@ export default function FasalRakshakPage() {
           </CardHeader>
           <CardContent>
             {topMatch ? (
-              <div className="space-y-2 text-sm text-[var(--color-text-muted)]">
-                <div className="text-lg font-semibold text-[var(--color-text)]">
-                  {topMatch.name}
+              <div className="space-y-4 text-sm text-[var(--color-text-muted)]">
+                <div className="space-y-2">
+                  <div className="text-lg font-semibold text-[var(--color-text)]">
+                    {topMatch.name}
+                  </div>
+                  <div>Confidence: {(topMatch.confidence * 100).toFixed(1)}%</div>
+                  <div>Severity: {topMatch.severity_assessment}</div>
+                  <div className="text-xs">Detected at {detection?.detected_at}</div>
                 </div>
-                <div>Confidence: {(topMatch.confidence * 100).toFixed(1)}%</div>
-                <div>Severity: {topMatch.severity_assessment}</div>
-                <div className="text-xs">Detected at {detection?.detected_at}</div>
+
+                {confidenceData.length > 0 && (
+                  <ResponsiveContainer width="100%" height={150}>
+                    <BarChart
+                      data={confidenceData}
+                      layout="horizontal"
+                      margin={CHART_DEFAULTS.margin}
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke={CHART_DEFAULTS.gridStroke}
+                      />
+                      <XAxis
+                        dataKey="name"
+                        tick={{ fontSize: CHART_DEFAULTS.fontSize, fill: CHART_DEFAULTS.axisStroke }}
+                        stroke={CHART_DEFAULTS.axisStroke}
+                        tickFormatter={(v: string) =>
+                          v.length > 12 ? `${v.slice(0, 12)}...` : v
+                        }
+                      />
+                      <YAxis
+                        domain={[0, 100]}
+                        tick={{ fontSize: CHART_DEFAULTS.fontSize, fill: CHART_DEFAULTS.axisStroke }}
+                        stroke={CHART_DEFAULTS.axisStroke}
+                        tickFormatter={(v: number) => `${v}%`}
+                      />
+                      <Tooltip
+                        contentStyle={CHART_DEFAULTS.tooltipStyle}
+                        formatter={(value: number) => [`${value}%`, "Confidence"]}
+                      />
+                      <Bar
+                        dataKey="confidence"
+                        radius={[4, 4, 0, 0]}
+                        animationDuration={CHART_DEFAULTS.animationDuration}
+                        animationEasing={CHART_DEFAULTS.animationEasing}
+                      >
+                        {confidenceData.map((entry, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={
+                              entry.confidence > 70
+                                ? CHART_COLORS.success
+                                : entry.confidence > 40
+                                  ? CHART_COLORS.warning
+                                  : CHART_COLORS.error
+                            }
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
               </div>
             ) : (
               <div className="flex h-32 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">

@@ -11,6 +11,21 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { API_PREFIXES } from "@/lib/utils";
+import {
+  RadialBarChart,
+  RadialBar,
+  RadarChart,
+  Radar,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  ResponsiveContainer,
+} from "recharts";
+import {
+  CHART_COLORS,
+  CHART_DEFAULTS,
+  getScoreColor,
+} from "@/components/dashboard/chart-theme";
 
 type SoilAnalysisResponse = {
   analysis_id: string;
@@ -56,6 +71,48 @@ export default function SoilScanPage() {
       return { label: analysis.fertility_class.toUpperCase(), variant: "default" as const };
     }
     return { label: analysis.fertility_class.toUpperCase(), variant: "secondary" as const };
+  }, [analysis]);
+
+  const gaugeData = useMemo(() => {
+    if (!analysis) return null;
+    const color = getScoreColor(analysis.health_score, 100);
+    return {
+      data: [
+        { name: "score", value: analysis.health_score, fill: color },
+      ],
+      color,
+    };
+  }, [analysis]);
+
+  const radarData = useMemo(() => {
+    if (!analysis) return null;
+    return [
+      {
+        nutrient: "Nitrogen",
+        value: analysis.nitrogen_ppm,
+        fullMark: 100,
+      },
+      {
+        nutrient: "Phosphorus",
+        value: analysis.phosphorus_ppm,
+        fullMark: 50,
+      },
+      {
+        nutrient: "Potassium",
+        value: analysis.potassium_ppm,
+        fullMark: 200,
+      },
+      {
+        nutrient: "pH",
+        value: analysis.ph_level,
+        fullMark: 14,
+      },
+      {
+        nutrient: "Organic C",
+        value: analysis.organic_carbon_pct,
+        fullMark: 2,
+      },
+    ];
   }, [analysis]);
 
   async function runAnalysis() {
@@ -236,14 +293,41 @@ export default function SoilScanPage() {
             </div>
           </CardHeader>
           <CardContent>
-            {analysis ? (
-              <div className="space-y-2">
-                <p className="text-3xl font-bold text-[var(--color-text)]">
-                  {analysis.health_score.toFixed(1)} / 100
-                </p>
-                <p className="text-sm text-[var(--color-text-muted)]">
-                  Fertility class: {analysis.fertility_class}
-                </p>
+            {analysis && gaugeData ? (
+              <div className="flex flex-col items-center gap-2">
+                <div className="relative" style={{ width: 160, height: 160 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RadialBarChart
+                      cx="50%"
+                      cy="50%"
+                      innerRadius="70%"
+                      outerRadius="90%"
+                      startAngle={90}
+                      endAngle={-270}
+                      barSize={12}
+                      data={gaugeData.data}
+                    >
+                      <RadialBar
+                        background={{ fill: "var(--color-border, #e7e5e4)" }}
+                        dataKey="value"
+                        cornerRadius={6}
+                        animationDuration={CHART_DEFAULTS.animationDuration}
+                        animationEasing={CHART_DEFAULTS.animationEasing}
+                      />
+                    </RadialBarChart>
+                  </ResponsiveContainer>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span
+                      className="text-2xl font-bold"
+                      style={{ color: gaugeData.color }}
+                    >
+                      {analysis.health_score.toFixed(0)}
+                    </span>
+                    <span className="text-xs text-[var(--color-text-muted)] capitalize">
+                      {analysis.fertility_class}
+                    </span>
+                  </div>
+                </div>
                 <p className="text-xs text-[var(--color-text-muted)]">
                   Analyzed at {new Date(analysis.analyzed_at).toLocaleString()}
                 </p>
@@ -264,38 +348,85 @@ export default function SoilScanPage() {
             <CardTitle className="text-base">Nutrient Analysis</CardTitle>
           </CardHeader>
           <CardContent>
-            <ul className="space-y-2 text-sm text-[var(--color-text-muted)]">
-              <li className="flex justify-between">
-                <span>Nitrogen (ppm)</span>
-                <span className="font-medium text-[var(--color-text)]">
-                  {analysis ? analysis.nitrogen_ppm.toFixed(1) : "--"}
-                </span>
-              </li>
-              <li className="flex justify-between">
-                <span>Phosphorus (ppm)</span>
-                <span className="font-medium text-[var(--color-text)]">
-                  {analysis ? analysis.phosphorus_ppm.toFixed(1) : "--"}
-                </span>
-              </li>
-              <li className="flex justify-between">
-                <span>Potassium (ppm)</span>
-                <span className="font-medium text-[var(--color-text)]">
-                  {analysis ? analysis.potassium_ppm.toFixed(1) : "--"}
-                </span>
-              </li>
-              <li className="flex justify-between">
-                <span>Organic Carbon (%)</span>
-                <span className="font-medium text-[var(--color-text)]">
-                  {analysis ? analysis.organic_carbon_pct.toFixed(2) : "--"}
-                </span>
-              </li>
-              <li className="flex justify-between">
-                <span>pH Level</span>
-                <span className="font-medium text-[var(--color-text)]">
-                  {analysis ? analysis.ph_level.toFixed(2) : "--"}
-                </span>
-              </li>
-            </ul>
+            {radarData ? (
+              <div className="flex flex-col items-center">
+                <div style={{ width: 250, height: 250 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RadarChart
+                      cx="50%"
+                      cy="50%"
+                      outerRadius="75%"
+                      data={radarData}
+                    >
+                      <PolarGrid stroke={CHART_DEFAULTS.gridStroke} />
+                      <PolarAngleAxis
+                        dataKey="nutrient"
+                        tick={{ fontSize: CHART_DEFAULTS.fontSize, fill: CHART_DEFAULTS.axisStroke }}
+                      />
+                      <PolarRadiusAxis
+                        angle={90}
+                        tick={false}
+                        axisLine={false}
+                      />
+                      <Radar
+                        name="Value"
+                        dataKey="value"
+                        stroke={CHART_COLORS.primary}
+                        fill={CHART_COLORS.primary}
+                        fillOpacity={0.3}
+                        animationDuration={CHART_DEFAULTS.animationDuration}
+                        animationEasing={CHART_DEFAULTS.animationEasing}
+                      />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                </div>
+                <ul className="mt-2 w-full space-y-1 text-xs text-[var(--color-text-muted)]">
+                  <li className="flex justify-between">
+                    <span>N</span>
+                    <span className="font-medium text-[var(--color-text)]">{analysis!.nitrogen_ppm.toFixed(1)} ppm</span>
+                  </li>
+                  <li className="flex justify-between">
+                    <span>P</span>
+                    <span className="font-medium text-[var(--color-text)]">{analysis!.phosphorus_ppm.toFixed(1)} ppm</span>
+                  </li>
+                  <li className="flex justify-between">
+                    <span>K</span>
+                    <span className="font-medium text-[var(--color-text)]">{analysis!.potassium_ppm.toFixed(1)} ppm</span>
+                  </li>
+                  <li className="flex justify-between">
+                    <span>pH</span>
+                    <span className="font-medium text-[var(--color-text)]">{analysis!.ph_level.toFixed(2)}</span>
+                  </li>
+                  <li className="flex justify-between">
+                    <span>OC</span>
+                    <span className="font-medium text-[var(--color-text)]">{analysis!.organic_carbon_pct.toFixed(2)}%</span>
+                  </li>
+                </ul>
+              </div>
+            ) : (
+              <ul className="space-y-2 text-sm text-[var(--color-text-muted)]">
+                <li className="flex justify-between">
+                  <span>Nitrogen (ppm)</span>
+                  <span className="font-medium text-[var(--color-text)]">--</span>
+                </li>
+                <li className="flex justify-between">
+                  <span>Phosphorus (ppm)</span>
+                  <span className="font-medium text-[var(--color-text)]">--</span>
+                </li>
+                <li className="flex justify-between">
+                  <span>Potassium (ppm)</span>
+                  <span className="font-medium text-[var(--color-text)]">--</span>
+                </li>
+                <li className="flex justify-between">
+                  <span>Organic Carbon (%)</span>
+                  <span className="font-medium text-[var(--color-text)]">--</span>
+                </li>
+                <li className="flex justify-between">
+                  <span>pH Level</span>
+                  <span className="font-medium text-[var(--color-text)]">--</span>
+                </li>
+              </ul>
+            )}
           </CardContent>
         </Card>
 

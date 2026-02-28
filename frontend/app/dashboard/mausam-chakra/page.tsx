@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Card,
   CardHeader,
@@ -11,6 +11,19 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { API_PREFIXES } from "@/lib/utils";
+import { CHART_COLORS, CHART_DEFAULTS } from "@/components/dashboard/chart-theme";
+import {
+  ComposedChart,
+  Line,
+  Bar,
+  Area,
+  AreaChart,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 
 const villages = [
   { code: "PB-LDH-01", name: "Ludhiana, Punjab" },
@@ -30,6 +43,17 @@ export default function MausamChakraPage() {
   const [alerts, setAlerts] = useState<any[]>([]);
   const [advisory, setAdvisory] = useState<any>(null);
   const [stations, setStations] = useState<any[]>([]);
+
+  const chartData = useMemo(
+    () =>
+      forecast.map((f, i) => ({
+        hour: `${i + 1}h`,
+        temperature_c: f.temperature_c,
+        rainfall_mm: f.rainfall_mm,
+        humidity_pct: f.humidity_pct,
+      })),
+    [forecast],
+  );
 
   useEffect(() => {
     const load = async () => {
@@ -178,13 +202,64 @@ export default function MausamChakraPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">
-              <p className="text-sm text-[var(--color-text-muted)]">
-                {forecast.length
-                  ? `Next hour: ${forecast[0].temperature_c} C, ${forecast[0].conditions}`
-                  : "Hourly forecast chart will appear here"}
-              </p>
-            </div>
+            {chartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={200}>
+                <ComposedChart
+                  data={chartData}
+                  margin={CHART_DEFAULTS.margin}
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke={CHART_DEFAULTS.gridStroke}
+                  />
+                  <XAxis
+                    dataKey="hour"
+                    tick={{ fontSize: CHART_DEFAULTS.fontSize, fill: CHART_DEFAULTS.axisStroke }}
+                    stroke={CHART_DEFAULTS.axisStroke}
+                  />
+                  <YAxis
+                    yAxisId="left"
+                    tick={{ fontSize: CHART_DEFAULTS.fontSize, fill: CHART_DEFAULTS.axisStroke }}
+                    stroke={CHART_DEFAULTS.axisStroke}
+                    label={{ value: "°C", position: "insideTopLeft", offset: -5, fontSize: CHART_DEFAULTS.fontSize, fill: CHART_DEFAULTS.axisStroke }}
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    tick={{ fontSize: CHART_DEFAULTS.fontSize, fill: CHART_DEFAULTS.axisStroke }}
+                    stroke={CHART_DEFAULTS.axisStroke}
+                    label={{ value: "mm", position: "insideTopRight", offset: -5, fontSize: CHART_DEFAULTS.fontSize, fill: CHART_DEFAULTS.axisStroke }}
+                  />
+                  <Tooltip contentStyle={CHART_DEFAULTS.tooltipStyle} />
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="temperature_c"
+                    name="Temperature (°C)"
+                    stroke={CHART_COLORS.primary}
+                    strokeWidth={2}
+                    dot={false}
+                    animationDuration={CHART_DEFAULTS.animationDuration}
+                    animationEasing={CHART_DEFAULTS.animationEasing}
+                  />
+                  <Bar
+                    yAxisId="right"
+                    dataKey="rainfall_mm"
+                    name="Rainfall (mm)"
+                    fill={CHART_COLORS.accent}
+                    opacity={0.7}
+                    animationDuration={CHART_DEFAULTS.animationDuration}
+                    animationEasing={CHART_DEFAULTS.animationEasing}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">
+                <p className="text-sm text-[var(--color-text-muted)]">
+                  Loading forecast data&hellip;
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -229,6 +304,57 @@ export default function MausamChakraPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Humidity Trend */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Humidity Trend</CardTitle>
+          <CardDescription>
+            Relative humidity over the next forecast hours
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {chartData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={chartData} margin={CHART_DEFAULTS.margin}>
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke={CHART_DEFAULTS.gridStroke}
+                />
+                <XAxis
+                  dataKey="hour"
+                  tick={{ fontSize: CHART_DEFAULTS.fontSize, fill: CHART_DEFAULTS.axisStroke }}
+                  stroke={CHART_DEFAULTS.axisStroke}
+                />
+                <YAxis
+                  tick={{ fontSize: CHART_DEFAULTS.fontSize, fill: CHART_DEFAULTS.axisStroke }}
+                  stroke={CHART_DEFAULTS.axisStroke}
+                  domain={[0, 100]}
+                  label={{ value: "%", position: "insideTopLeft", offset: -5, fontSize: CHART_DEFAULTS.fontSize, fill: CHART_DEFAULTS.axisStroke }}
+                />
+                <Tooltip contentStyle={CHART_DEFAULTS.tooltipStyle} />
+                <Area
+                  type="monotone"
+                  dataKey="humidity_pct"
+                  name="Humidity (%)"
+                  stroke={CHART_COLORS.purple}
+                  fill={CHART_COLORS.purple}
+                  fillOpacity={0.2}
+                  strokeWidth={2}
+                  animationDuration={CHART_DEFAULTS.animationDuration}
+                  animationEasing={CHART_DEFAULTS.animationEasing}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">
+              <p className="text-sm text-[var(--color-text-muted)]">
+                Loading humidity data&hellip;
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Agricultural Advisory */}
       <Card>

@@ -2,6 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
+import {
   Card,
   CardHeader,
   CardTitle,
@@ -11,6 +20,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { API_PREFIXES } from "@/lib/utils";
+import { CHART_COLORS, CHART_DEFAULTS } from "@/components/dashboard/chart-theme";
 
 type PlotResponse = {
   plot_id: string;
@@ -105,9 +115,27 @@ export default function JalShaktiPage() {
   }, [plotId]);
 
   const scheduleDays = useMemo(() => schedule?.schedule?.slice(0, 7) || [], [schedule]);
+
+  const chartData = useMemo(
+    () =>
+      scheduleDays.map((d, i) => ({
+        day: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][i],
+        volume: Math.round(d.water_volume_liters),
+      })),
+    [scheduleDays],
+  );
+
   const efficiency = usage?.efficiency_score?.toFixed(1) ?? "--";
   const totalUsage = usage ? `${usage.total_usage_liters.toFixed(0)} L` : "--";
   const savings = usage ? `${usage.savings_vs_flood_irrigation_pct.toFixed(1)}%` : "--";
+
+  const efficiencyScore = usage?.efficiency_score ?? 0;
+  const gaugeColor =
+    efficiencyScore > 80
+      ? CHART_COLORS.primary
+      : efficiencyScore > 60
+        ? CHART_COLORS.secondary
+        : CHART_COLORS.error;
 
   return (
     <div className="space-y-8">
@@ -169,10 +197,63 @@ export default function JalShaktiPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">
-              <p className="text-sm text-[var(--color-text-muted)]">
-                Schedule generated at {schedule?.generated_at ? new Date(schedule.generated_at).toLocaleString() : "--"}
-              </p>
+            {chartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={chartData} margin={CHART_DEFAULTS.margin}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_DEFAULTS.gridStroke} />
+                  <XAxis
+                    dataKey="day"
+                    stroke={CHART_DEFAULTS.axisStroke}
+                    fontSize={CHART_DEFAULTS.fontSize}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    stroke={CHART_DEFAULTS.axisStroke}
+                    fontSize={CHART_DEFAULTS.fontSize}
+                    tickLine={false}
+                    label={{
+                      value: "Litres",
+                      angle: -90,
+                      position: "insideLeft",
+                      style: { fontSize: CHART_DEFAULTS.fontSize, fill: CHART_DEFAULTS.axisStroke },
+                    }}
+                  />
+                  <Tooltip
+                    contentStyle={CHART_DEFAULTS.tooltipStyle}
+                    formatter={(value: number) => [`${value} L`, "Volume"]}
+                  />
+                  <Bar
+                    dataKey="volume"
+                    fill={CHART_COLORS.accent}
+                    radius={[4, 4, 0, 0]}
+                    animationDuration={CHART_DEFAULTS.animationDuration}
+                    animationEasing={CHART_DEFAULTS.animationEasing}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-[200px] items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">
+                <p className="text-sm text-[var(--color-text-muted)]">No schedule data available</p>
+              </div>
+            )}
+
+            {/* Efficiency gauge */}
+            <div className="mt-4">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-[var(--color-text-muted)]">Efficiency</span>
+                <span className="font-medium text-[var(--color-text)]">
+                  {efficiency}{usage ? "%" : ""}
+                </span>
+              </div>
+              <div className="mt-1.5 h-2.5 w-full overflow-hidden rounded-full bg-[var(--color-border)]">
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{
+                    width: `${Math.min(efficiencyScore, 100)}%`,
+                    backgroundColor: gaugeColor,
+                  }}
+                />
+              </div>
             </div>
             <ul className="mt-4 space-y-2 text-sm text-[var(--color-text-muted)]">
               <li className="flex justify-between">

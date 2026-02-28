@@ -2,6 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
+import {
   Card,
   CardHeader,
   CardTitle,
@@ -11,6 +20,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { API_PREFIXES } from "@/lib/utils";
+import { CHART_COLORS, CHART_DEFAULTS } from "@/components/dashboard/chart-theme";
+import { MapView, MapMarkers, MapRoute } from "@/components/dashboard/map-view";
 
 const crops = [
   "Tomato",
@@ -99,6 +110,44 @@ export default function HarvestToCartPage() {
 
   const buyersTop = useMemo(() => buyers.slice(0, 3), [buyers]);
 
+  const demandData = useMemo(
+    () => [
+      { city: "Delhi", demand: 45 + Math.round(Math.random() * 20) },
+      { city: "Mumbai", demand: 38 + Math.round(Math.random() * 15) },
+      { city: "Kolkata", demand: 22 + Math.round(Math.random() * 12) },
+      { city: "Chennai", demand: 28 + Math.round(Math.random() * 10) },
+      { city: "Bangalore", demand: 32 + Math.round(Math.random() * 14) },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedCrop],
+  );
+
+  const routeMarkers = useMemo(
+    () => [
+      {
+        position: [28.61, 77.21] as [number, number],
+        title: "Origin (Farm)",
+        description: "Your farm location",
+      },
+      {
+        position: [28.7, 77.1] as [number, number],
+        title: "Destination 1",
+        description: "Demand: 12 tonnes",
+      },
+      {
+        position: [28.58, 77.33] as [number, number],
+        title: "Destination 2",
+        description: "Demand: 9 tonnes",
+      },
+    ],
+    [],
+  );
+
+  const routePositions = useMemo<[number, number][]>(
+    () => routeMarkers.map((m) => m.position),
+    [routeMarkers],
+  );
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -145,7 +194,11 @@ export default function HarvestToCartPage() {
               Cold storage facilities near your location sorted by distance
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            <MapView center={[28.61, 77.21]} zoom={10} height={220}>
+              <MapMarkers markers={routeMarkers} />
+              <MapRoute positions={routePositions} color={CHART_COLORS.primary} />
+            </MapView>
             <ul className="space-y-3 text-sm text-[var(--color-text-muted)]">
               {[
                 { name: "Delhi Cold Chain Hub", dist: "12 km", cap: "500 MT" },
@@ -173,11 +226,42 @@ export default function HarvestToCartPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex h-48 items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">
-              <p className="text-sm text-[var(--color-text-muted)]">
-                {loading ? "Fetching demand forecast..." : "Demand chart will appear here"}
-              </p>
-            </div>
+            {loading ? (
+              <div className="flex h-[200px] items-center justify-center rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-background)]">
+                <p className="text-sm text-[var(--color-text-muted)]">
+                  Fetching demand forecast...
+                </p>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={demandData} margin={CHART_DEFAULTS.margin}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_DEFAULTS.gridStroke} />
+                  <XAxis
+                    dataKey="city"
+                    tick={{ fontSize: CHART_DEFAULTS.fontSize, fill: CHART_DEFAULTS.axisStroke }}
+                    stroke={CHART_DEFAULTS.axisStroke}
+                  />
+                  <YAxis
+                    tick={{ fontSize: CHART_DEFAULTS.fontSize, fill: CHART_DEFAULTS.axisStroke }}
+                    stroke={CHART_DEFAULTS.axisStroke}
+                    label={{
+                      value: "Demand (tonnes)",
+                      angle: -90,
+                      position: "insideLeft",
+                      style: { fontSize: CHART_DEFAULTS.fontSize, fill: CHART_DEFAULTS.axisStroke },
+                    }}
+                  />
+                  <Tooltip contentStyle={CHART_DEFAULTS.tooltipStyle} />
+                  <Bar
+                    dataKey="demand"
+                    fill={CHART_COLORS.primary}
+                    radius={[4, 4, 0, 0]}
+                    animationDuration={CHART_DEFAULTS.animationDuration}
+                    animationEasing={CHART_DEFAULTS.animationEasing}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       </div>
