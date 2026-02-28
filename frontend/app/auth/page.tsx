@@ -75,9 +75,21 @@ function AuthForm() {
       await authenticateAndRedirect(res.access_token);
     } catch (err: unknown) {
       if (err instanceof Error) {
-        // Try to extract detail from API error body
-        const apiErr = err as { body?: { detail?: string } };
-        setError(apiErr.body?.detail ?? err.message);
+        const apiErr = err as { body?: { detail?: unknown } };
+        const detail = apiErr.body?.detail;
+        if (typeof detail === "string") {
+          setError(detail);
+        } else if (Array.isArray(detail)) {
+          const messages = detail
+            .map((item) => (item && typeof item.msg === "string" ? item.msg : null))
+            .filter(Boolean)
+            .join("; ");
+          setError(messages || err.message);
+        } else if (detail) {
+          setError(JSON.stringify(detail));
+        } else {
+          setError(err.message);
+        }
       } else {
         setError("Login failed. Please try again.");
       }
@@ -103,8 +115,21 @@ function AuthForm() {
       await authenticateAndRedirect(res.access_token);
     } catch (err: unknown) {
       if (err instanceof Error) {
-        const apiErr = err as { body?: { detail?: string } };
-        setError(apiErr.body?.detail ?? err.message);
+        const apiErr = err as { body?: { detail?: unknown } };
+        const detail = apiErr.body?.detail;
+        if (typeof detail === "string") {
+          setError(detail);
+        } else if (Array.isArray(detail)) {
+          const messages = detail
+            .map((item) => (item && typeof item.msg === "string" ? item.msg : null))
+            .filter(Boolean)
+            .join("; ");
+          setError(messages || err.message);
+        } else if (detail) {
+          setError(JSON.stringify(detail));
+        } else {
+          setError(err.message);
+        }
       } else {
         setError("Registration failed. Please try again.");
       }
