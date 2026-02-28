@@ -9,19 +9,24 @@ Implements:
 - Agriculture-specific weather advisories (spray windows, harvest risk)
 - Historical weather summaries with anomaly detection
 - Regional weather characteristics (continental, tropical, arid, coastal)
+- Real OpenWeather API integration with graceful fallback to simulation
 
-All data is simulated with realistic seasonal and diurnal patterns using
-numpy. Village codes map to real Indian agricultural regions.
+Uses OpenWeather API when OPENWEATHER_API_KEY is configured,
+otherwise falls back to simulated data with realistic patterns.
 """
 
 from __future__ import annotations
 
+import json
+import logging
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Optional
 from uuid import uuid4
 
+import httpx
 import numpy as np
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Query, status
@@ -34,6 +39,238 @@ from services.shared.auth.router import router as auth_router, setup_rate_limiti
 from services.shared.config import settings
 from services.shared.db.models import ForecastStats, WeatherStation
 from services.shared.db.session import close_db, get_db, init_db
+
+logger = logging.getLogger(__name__)
+
+# ============================================================
+# OpenWeather API Configuration
+# ============================================================
+
+OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "")
+OPENWEATHER_BASE_URL = "https://api.openweathermap.org/data/2.5"
+OPENWEATHER_ONECALL_URL = "https://api.openweathermap.org/data/3.0/onecall"
+
+# Simple in-memory cache (TTL: 30 min for current, 3 hours for forecast)
+_weather_cache: dict[str, tuple[float, dict]] = {}
+CURRENT_CACHE_TTL = 30 * 60  # 30 minutes
+FORECAST_CACHE_TTL = 3 * 60 * 60  # 3 hours
+
+_http_client: httpx.AsyncClient | None = None
+
+
+async def _get_http_client() -> httpx.AsyncClient:
+    """Get or create a persistent async HTTP client."""
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(timeout=10.0)
+    return _http_client
+
+
+def _cache_get(key: str) -> dict | None:
+    """Get cached data if not expired."""
+    if key in _weather_cache:
+        ts, data = _weather_cache[key]
+        ttl = FORECAST_CACHE_TTL if "forecast" in key else CURRENT_CACHE_TTL
+        if (datetime.now(timezone.utc).timestamp() - ts) < ttl:
+            return data
+        del _weather_cache[key]
+    return None
+
+
+def _cache_set(key: str, data: dict) -> None:
+    """Store data in cache."""
+    _weather_cache[key] = (datetime.now(timezone.utc).timestamp(), data)
+
+
+def _owm_condition_to_string(weather_id: int, description: str) -> str:
+    """Map OpenWeather condition codes to our condition strings."""
+    if weather_id >= 200 and weather_id < 300:
+        return "stormy"
+    if weather_id >= 300 and weather_id < 400:
+        return "light_rain"
+    if weather_id >= 500 and weather_id < 510:
+        return "rainy" if weather_id >= 502 else "light_rain"
+    if weather_id >= 510 and weather_id < 600:
+        return "heavy_rain"
+    if weather_id >= 600 and weather_id < 700:
+        return "light_rain"  # snow mapped to light_rain for Indian context
+    if weather_id >= 700 and weather_id < 800:
+        return "humid"  # mist/fog/haze
+    if weather_id == 800:
+        return "sunny"
+    if weather_id == 801:
+        return "partly_cloudy"
+    if weather_id == 802:
+        return "cloudy"
+    if weather_id >= 803:
+        return "overcast"
+    return "partly_cloudy"
+
+
+async def _fetch_openweather_current(lat: float, lon: float) -> dict | None:
+    """Fetch current weather from OpenWeather API. Returns None on failure."""
+    if not OPENWEATHER_API_KEY:
+        return None
+
+    cache_key = f"current:{lat:.2f},{lon:.2f}"
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+
+    try:
+        client = await _get_http_client()
+        resp = await client.get(
+            f"{OPENWEATHER_BASE_URL}/weather",
+            params={
+                "lat": lat,
+                "lon": lon,
+                "appid": OPENWEATHER_API_KEY,
+                "units": "metric",
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        _cache_set(cache_key, data)
+        logger.info("OpenWeather current weather fetched for (%.2f, %.2f)", lat, lon)
+        return data
+    except Exception as e:
+        logger.warning("OpenWeather API failed for current weather: %s", e)
+        return None
+
+
+async def _fetch_openweather_forecast(lat: float, lon: float) -> dict | None:
+    """Fetch 5-day/3-hour forecast from OpenWeather API. Returns None on failure."""
+    if not OPENWEATHER_API_KEY:
+        return None
+
+    cache_key = f"forecast:{lat:.2f},{lon:.2f}"
+    cached = _cache_get(cache_key)
+    if cached:
+        return cached
+
+    try:
+        client = await _get_http_client()
+        resp = await client.get(
+            f"{OPENWEATHER_BASE_URL}/forecast",
+            params={
+                "lat": lat,
+                "lon": lon,
+                "appid": OPENWEATHER_API_KEY,
+                "units": "metric",
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        _cache_set(cache_key, data)
+        logger.info("OpenWeather forecast fetched for (%.2f, %.2f)", lat, lon)
+        return data
+    except Exception as e:
+        logger.warning("OpenWeather API failed for forecast: %s", e)
+        return None
+
+
+def _parse_owm_current(owm_data: dict, village_code: str, village: dict) -> dict:
+    """Parse OpenWeather current weather response into our format."""
+    main = owm_data.get("main", {})
+    wind = owm_data.get("wind", {})
+    clouds = owm_data.get("clouds", {})
+    weather = owm_data.get("weather", [{}])[0]
+    rain = owm_data.get("rain", {})
+
+    temp = main.get("temp", 25.0)
+    humidity = main.get("humidity", 50.0)
+    wind_speed_ms = wind.get("speed", 0.0)
+    wind_speed_kmh = wind_speed_ms * 3.6
+    wind_deg = wind.get("deg", 0)
+    cloud_cover = clouds.get("all", 0)
+    pressure = main.get("pressure", 1013.25)
+    visibility_m = owm_data.get("visibility", 10000)
+    visibility_km = visibility_m / 1000.0
+    rainfall = rain.get("1h", 0.0)
+    feels_like = main.get("feels_like", temp)
+
+    # Map wind degrees to direction
+    dir_index = int((wind_deg + 11.25) / 22.5) % 16
+    wind_dir = WIND_DIRECTIONS[dir_index]
+
+    # UV index and conditions
+    conditions = _owm_condition_to_string(
+        weather.get("id", 800), weather.get("description", "")
+    )
+    now = datetime.now(timezone.utc)
+    ist_hour = (now.hour + 5) % 24
+    month = now.month
+    season = _get_season(month)
+    uv_index = _compute_uv_index(ist_hour, cloud_cover, season)
+
+    return {
+        "village_code": village_code,
+        "state": village["state"],
+        "district": village["district"],
+        "latitude": village["lat"],
+        "longitude": village["lon"],
+        "timestamp": now.isoformat(),
+        "temperature_c": round(temp, 1),
+        "feels_like_c": round(feels_like, 1),
+        "humidity_pct": round(humidity, 1),
+        "wind_speed_kmh": round(wind_speed_kmh, 1),
+        "wind_direction": wind_dir,
+        "rainfall_mm": round(rainfall, 1),
+        "pressure_hpa": round(pressure, 1),
+        "cloud_cover_pct": round(float(cloud_cover), 1),
+        "visibility_km": round(visibility_km, 1),
+        "uv_index": uv_index,
+        "season": season,
+        "conditions": conditions,
+        "data_source": "openweather_api",
+    }
+
+
+def _parse_owm_forecast(
+    owm_data: dict, village_code: str, village: dict, hours: int
+) -> list[dict]:
+    """Parse OpenWeather 5-day/3-hour forecast into our hourly format."""
+    forecast_list = owm_data.get("list", [])
+    results = []
+
+    for item in forecast_list[:hours]:
+        main = item.get("main", {})
+        wind = item.get("wind", {})
+        clouds = item.get("clouds", {})
+        weather = item.get("weather", [{}])[0]
+        rain = item.get("rain", {})
+
+        temp = main.get("temp", 25.0)
+        humidity = main.get("humidity", 50.0)
+        wind_speed_ms = wind.get("speed", 0.0)
+        wind_speed_kmh = wind_speed_ms * 3.6
+        wind_deg = wind.get("deg", 0)
+        cloud_cover = clouds.get("all", 0)
+        rainfall = rain.get("3h", 0.0) / 3.0  # Convert 3h to hourly
+        pop = item.get("pop", 0.0) * 100  # probability of precipitation
+
+        dir_index = int((wind_deg + 11.25) / 22.5) % 16
+        wind_dir = WIND_DIRECTIONS[dir_index]
+        conditions = _owm_condition_to_string(
+            weather.get("id", 800), weather.get("description", "")
+        )
+
+        results.append(
+            {
+                "timestamp": item.get("dt_txt", datetime.now(timezone.utc).isoformat()),
+                "temperature_c": round(temp, 1),
+                "humidity_pct": round(humidity, 1),
+                "rain_probability_pct": round(pop, 1),
+                "rainfall_mm": round(rainfall, 1),
+                "wind_speed_kmh": round(wind_speed_kmh, 1),
+                "wind_direction": wind_dir,
+                "conditions": conditions,
+                "cloud_cover_pct": round(float(cloud_cover), 1),
+            }
+        )
+
+    return results
+
 
 # ============================================================
 # Village Code → Coordinate & Climate Profile Mapping
@@ -1398,7 +1635,15 @@ def _generate_alerts_for_region(
 async def lifespan(app: FastAPI):
     """Application lifespan: initialize and cleanup resources."""
     await init_db()
+    if OPENWEATHER_API_KEY:
+        logger.info("OpenWeather API key configured -- real weather data enabled")
+    else:
+        logger.info("No OpenWeather API key -- using simulated weather data")
     yield
+    # Cleanup
+    global _http_client
+    if _http_client and not _http_client.is_closed:
+        await _http_client.aclose()
     await close_db()
 
 
@@ -1466,9 +1711,9 @@ async def root():
 async def get_current_weather(village_code: str):
     """Get current weather conditions for a village.
 
-    Uses deterministic simulation seeded by village code and current hour
-    so that readings are stable within the same hour but evolve naturally.
-    Regional climate zone characteristics are applied for realism.
+    Tries OpenWeather API first if OPENWEATHER_API_KEY is configured.
+    Falls back to deterministic simulation seeded by village code and
+    current hour so readings are stable within the same hour.
     """
     if village_code not in VILLAGE_REGISTRY:
         raise HTTPException(
@@ -1476,6 +1721,16 @@ async def get_current_weather(village_code: str):
             detail=f"Village code '{village_code}' not found. Use a valid code like 'PB-LDH-001'.",
         )
 
+    village = VILLAGE_REGISTRY[village_code]
+
+    # Try real API first
+    if OPENWEATHER_API_KEY:
+        owm_data = await _fetch_openweather_current(village["lat"], village["lon"])
+        if owm_data:
+            weather = _parse_owm_current(owm_data, village_code, village)
+            return CurrentWeatherResponse(**weather)
+
+    # Fallback to simulated data
     weather = _generate_current_weather(village_code)
     return CurrentWeatherResponse(**weather)
 
@@ -1495,9 +1750,9 @@ async def get_forecast(
 ):
     """Get hour-by-hour weather forecast for a village.
 
-    Generates forecasts using sinusoidal temperature patterns with
-    seasonal baselines, random perturbations, and monsoon rainfall
-    modeling. Results are deterministic per day for consistency.
+    Tries OpenWeather API first if OPENWEATHER_API_KEY is configured.
+    Falls back to sinusoidal temperature patterns with seasonal baselines,
+    random perturbations, and monsoon rainfall modeling.
     """
     if village_code not in VILLAGE_REGISTRY:
         raise HTTPException(
@@ -1506,7 +1761,17 @@ async def get_forecast(
         )
 
     village = VILLAGE_REGISTRY[village_code]
-    forecasts = _generate_hourly_forecast(village_code, hours)
+    forecasts = None
+
+    # Try real API first
+    if OPENWEATHER_API_KEY:
+        owm_data = await _fetch_openweather_forecast(village["lat"], village["lon"])
+        if owm_data:
+            forecasts = _parse_owm_forecast(owm_data, village_code, village, hours)
+
+    # Fallback to simulated data
+    if not forecasts:
+        forecasts = _generate_hourly_forecast(village_code, hours)
 
     update_result = await db.execute(
         update(ForecastStats)

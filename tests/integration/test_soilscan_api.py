@@ -2,15 +2,39 @@
 Integration tests for the SoilScan AI service.
 
 These tests use httpx.ASGITransport to test the FastAPI app directly
-without needing a running server or database. The SoilScan service uses
-an in-memory store, so we can exercise the real endpoint logic.
+without needing a running server or database. The DB dependency is
+overridden with an in-memory SQLite session so that endpoints exercise
+real DB logic without requiring PostgreSQL.
 """
-
-from contextlib import asynccontextmanager
 
 import httpx
 import pytest
-from fastapi import FastAPI
+from sqlalchemy import event
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from services.shared.db.session import Base, get_db
+
+
+# ---------------------------------------------------------------------------
+# In-memory SQLite engine for tests
+# ---------------------------------------------------------------------------
+_test_engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+_test_session_factory = async_sessionmaker(
+    _test_engine, class_=AsyncSession, expire_on_commit=False
+)
+
+
+async def _override_get_db():
+    """Yield an in-memory SQLite session instead of PostgreSQL."""
+    async with _test_session_factory() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
 
 
 # ---------------------------------------------------------------------------
@@ -31,22 +55,21 @@ SAMPLE_SOIL_REQUEST = {
 
 
 @pytest.fixture()
-def soilscan_app():
-    """Create the SoilScan app with DB lifecycle mocked out."""
-    from services.soilscan_ai import app as soilscan_module
+async def soilscan_app():
+    """Return the real SoilScan app with the DB dependency overridden."""
+    from services.soilscan_ai.app import app
 
-    @asynccontextmanager
-    async def noop_lifespan(app):
-        yield
+    # Create tables in the in-memory SQLite database
+    async with _test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
-    # Create a fresh app with the same routes but no DB lifecycle
-    test_app = FastAPI(lifespan=noop_lifespan)
+    app.dependency_overrides[get_db] = _override_get_db
+    yield app
+    app.dependency_overrides.clear()
 
-    # Copy all routes from the real app
-    for route in soilscan_module.app.routes:
-        test_app.routes.append(route)
-
-    return test_app
+    # Tear down: drop all tables
+    async with _test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
 
 
 @pytest.fixture()
