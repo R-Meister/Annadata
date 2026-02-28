@@ -23,6 +23,10 @@ COPY services/__init__.py /app/services/__init__.py
 # Copy shared service code
 COPY services/shared /app/services/shared
 
+# Copy Alembic config and migrations
+COPY alembic.ini /app/alembic.ini
+COPY alembic /app/alembic
+
 # Copy this service
 COPY services/msp_mitra /app/services/msp_mitra
 
