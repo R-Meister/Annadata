@@ -48,7 +48,7 @@ function AuthForm() {
     setPassword("");
     setFullName("");
     setPhone("");
-    setRole(roles[0]);
+      setRole(roles[0]);
     setState("");
     setDistrict("");
     setError(null);
@@ -96,7 +96,7 @@ function AuthForm() {
         password,
         full_name: fullName,
         phone: phone || undefined,
-        role: role || undefined,
+        role: role ? role.toUpperCase() : undefined,
         state: state || undefined,
         district: district || undefined,
       });
