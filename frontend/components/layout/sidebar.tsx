@@ -22,6 +22,9 @@ import {
   TrendingUp,
   Leaf,
   Bell,
+  Network,
+  Activity,
+  Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
@@ -49,6 +52,9 @@ const navItems: NavItem[] = [
   { label: "Impact", href: "/dashboard/impact", icon: TrendingUp },
   { label: "Sustainability", href: "/dashboard/sustainability", icon: Leaf },
   { label: "Alerts", href: "/dashboard/alerts", icon: Bell },
+  { label: "Architecture", href: "/dashboard/architecture", icon: Network },
+  { label: "Status Monitor", href: "/dashboard/status", icon: Activity },
+  { label: "Government", href: "/dashboard/government", icon: Building2 },
 ];
 
 interface SidebarProps {

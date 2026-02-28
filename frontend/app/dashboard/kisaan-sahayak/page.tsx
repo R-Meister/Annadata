@@ -142,7 +142,9 @@ export default function KisaanSahayakPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [isListening, setIsListening] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<any>(null);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -197,6 +199,40 @@ export default function KisaanSahayakPage() {
       e.preventDefault();
       sendMessage(input);
     }
+  }
+
+  // Web Speech API voice input (Hindi + English)
+  const speechSupported = typeof window !== "undefined" && ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+
+  function toggleVoice() {
+    if (isListening && recognitionRef.current) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+      return;
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "hi-IN"; // Hindi primary, also picks up English
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.continuous = false;
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0]?.[0]?.transcript;
+      if (transcript) {
+        setInput((prev) => (prev ? prev + " " + transcript : transcript));
+      }
+    };
+
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => setIsListening(false);
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsListening(true);
   }
 
   return (
@@ -328,6 +364,20 @@ export default function KisaanSahayakPage() {
                 disabled={status === "loading"}
                 className="flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)] disabled:opacity-50"
               />
+              {speechSupported && (
+                <button
+                  onClick={toggleVoice}
+                  disabled={status === "loading"}
+                  className={`rounded-lg border px-3 py-2 text-sm transition-colors ${
+                    isListening
+                      ? "border-red-500 bg-red-500/10 text-red-500 animate-pulse"
+                      : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:bg-[var(--color-border)]"
+                  } disabled:opacity-50`}
+                  title={isListening ? "Stop listening" : "Voice input (Hindi/English)"}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
+                </button>
+              )}
               <Button
                 onClick={() => sendMessage(input)}
                 disabled={status === "loading" || !input.trim()}

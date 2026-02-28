@@ -139,6 +139,30 @@ const services = [
     borderColor: "border-l-yellow-500",
     key: "alerts",
   },
+  {
+    name: "Architecture",
+    href: "/dashboard/architecture",
+    description:
+      "Interactive architecture diagram showing all microservices, infrastructure, and external API integrations.",
+    borderColor: "border-l-slate-500",
+    key: "architecture",
+  },
+  {
+    name: "Status Monitor",
+    href: "/dashboard/status",
+    description:
+      "Real-time health monitoring for all 11 services, infrastructure components, and incident log.",
+    borderColor: "border-l-rose-500",
+    key: "statusMonitor",
+  },
+  {
+    name: "Government Dashboard",
+    href: "/dashboard/government",
+    description:
+      "District-level agricultural overview with tehsil grid, intervention priorities, and scheme utilization.",
+    borderColor: "border-l-blue-600",
+    key: "government",
+  },
 ] as const;
 
 const recentActivity = [

@@ -21,6 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { API_PREFIXES } from "@/lib/utils";
 import { CHART_COLORS, CHART_DEFAULTS } from "@/components/dashboard/chart-theme";
+import { exportToCSV, exportToPDF, tableToHTML } from "@/lib/export";
 
 const commodities = ["Rice", "Wheat", "Maize", "Cotton", "Soybean"] as const;
 const states = [
@@ -122,17 +123,67 @@ export default function MspMitraPage() {
     void load();
   }, [selectedCommodity, selectedState]);
 
+  const handleExportCSV = () => {
+    if (!predictions.length) return;
+    const rows = predictions.map((p, i) => ({
+      date: p.date ?? `Day ${i + 1}`,
+      predicted_price: p.predicted_price ?? p.price ?? 0,
+    }));
+    exportToCSV(rows, `msp-mitra-${selectedCommodity}-${selectedState}`);
+  };
+
+  const handleExportPDF = () => {
+    const statsHtml = priceStats
+      ? `<h2>Market Analytics — ${selectedCommodity} (${selectedState})</h2>
+         <table>
+           <tr><th>Metric</th><th>Value</th></tr>
+           <tr><td>Average Price</td><td>₹${priceStats.average}</td></tr>
+           <tr><td>Min Price</td><td>₹${priceStats.min}</td></tr>
+           <tr><td>Max Price</td><td>₹${priceStats.max}</td></tr>
+           ${volatility !== null ? `<tr><td>30-day Volatility</td><td>${volatility.toFixed(1)}%</td></tr>` : ""}
+         </table>`
+      : "";
+
+    const predHtml = predictions.length
+      ? tableToHTML(
+          predictions.map((p, i) => ({
+            Date: p.date ?? `Day ${i + 1}`,
+            "Predicted Price (₹/q)": String(p.predicted_price ?? p.price ?? "--"),
+          })),
+          [
+            { key: "Date", label: "Date" },
+            { key: "Predicted Price (₹/q)", label: "Predicted Price (₹/q)" },
+          ],
+        )
+      : "";
+
+    exportToPDF(
+      `MSP Mitra — ${selectedCommodity} (${selectedState})`,
+      `${statsHtml}${predHtml ? `<h2>Price Predictions</h2>${predHtml}` : ""}`,
+    );
+  };
+
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight text-[var(--color-text)]">
-          MSP Mitra &mdash; Price Intelligence
-        </h1>
-        <p className="mt-1 text-[var(--color-text-muted)]">
-          Real-time MSP tracking, price forecasting, and market analytics for
-          agricultural commodities across Indian mandis.
-        </p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-[var(--color-text)]">
+            MSP Mitra &mdash; Price Intelligence
+          </h1>
+          <p className="mt-1 text-[var(--color-text-muted)]">
+            Real-time MSP tracking, price forecasting, and market analytics for
+            agricultural commodities across Indian mandis.
+          </p>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <Button size="sm" variant="outline" onClick={handleExportCSV} disabled={!predictions.length}>
+            Export CSV
+          </Button>
+          <Button size="sm" variant="outline" onClick={handleExportPDF} disabled={!predictions.length && !priceStats}>
+            Export PDF
+          </Button>
+        </div>
       </div>
 
       {/* Selectors */}

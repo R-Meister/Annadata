@@ -10,8 +10,10 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { ChartWrapper, StatCard } from "@/components/dashboard/chart-wrapper";
 import { CHART_COLORS, SERIES_COLORS, CHART_DEFAULTS } from "@/components/dashboard/chart-theme";
+import { exportToPDF } from "@/lib/export";
 import {
   RadarChart,
   PolarGrid,
@@ -190,17 +192,62 @@ export default function DigitalTwinPage() {
     return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
   }, []);
 
+  const handleExportPDF = () => {
+    const profileHtml = `
+      <h2>Farmer Profile</h2>
+      <table>
+        <tr><th>Field</th><th>Value</th></tr>
+        <tr><td>Name</td><td>${farmer.name}</td></tr>
+        <tr><td>Location</td><td>${farmer.village}, ${farmer.district}, ${farmer.state}</td></tr>
+        <tr><td>Farmer ID</td><td>${farmer.farmerId}</td></tr>
+        <tr><td>Land Holding</td><td>${farmer.landHolding}</td></tr>
+        <tr><td>Primary Crops</td><td>${farmer.primaryCrops.join(", ")}</td></tr>
+        <tr><td>Season</td><td>${farmer.season}</td></tr>
+        <tr><td>Overall Health Score</td><td>${overallScore}/100</td></tr>
+      </table>
+      <h2>Soil Health</h2>
+      <table>
+        <tr><th>Parameter</th><th>Value</th></tr>
+        <tr><td>pH</td><td>${serviceData.soilHealth.ph}</td></tr>
+        <tr><td>Nitrogen</td><td>${serviceData.soilHealth.nitrogen} kg/ha</td></tr>
+        <tr><td>Phosphorus</td><td>${serviceData.soilHealth.phosphorus} kg/ha</td></tr>
+        <tr><td>Potassium</td><td>${serviceData.soilHealth.potassium} kg/ha</td></tr>
+        <tr><td>Organic Carbon</td><td>${serviceData.soilHealth.organicCarbon}%</td></tr>
+        <tr><td>Fertility</td><td>${serviceData.soilHealth.fertility}</td></tr>
+      </table>
+      <h2>Crop Status</h2>
+      <table>
+        <tr><th>Parameter</th><th>Value</th></tr>
+        <tr><td>Current Crop</td><td>${serviceData.cropStatus.currentCrop} (${serviceData.cropStatus.variety})</td></tr>
+        <tr><td>Growth Stage</td><td>${serviceData.cropStatus.growthStage}</td></tr>
+        <tr><td>Health</td><td>${serviceData.cropStatus.healthStatus}</td></tr>
+        <tr><td>Disease Risk</td><td>${serviceData.cropStatus.diseaseRisk}</td></tr>
+        <tr><td>Next Action</td><td>${serviceData.cropStatus.nextAction}</td></tr>
+      </table>
+      <h2>Action Items</h2>
+      <table>
+        <tr><th>Priority</th><th>Action</th><th>Source</th></tr>
+        ${actionItems.map((a) => `<tr><td><span class="badge badge-${a.priority === "high" ? "red" : a.priority === "medium" ? "yellow" : "green"}">${a.priority.toUpperCase()}</span></td><td>${a.action}</td><td>${a.source}</td></tr>`).join("")}
+      </table>`;
+    exportToPDF(`Digital Twin Report — ${farmer.name}`, profileHtml);
+  };
+
   return (
     <div className="flex flex-col gap-6">
       {/* Page header */}
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight text-[var(--color-text)]">
-          Farmer Digital Twin
-        </h1>
-        <p className="mt-1 text-[var(--color-text-muted)]">
-          Unified view of {farmer.name}&apos;s farm &mdash; aggregating insights from all
-          11 Annadata services into a single actionable dashboard.
-        </p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-[var(--color-text)]">
+            Farmer Digital Twin
+          </h1>
+          <p className="mt-1 text-[var(--color-text-muted)]">
+            Unified view of {farmer.name}&apos;s farm &mdash; aggregating insights from all
+            11 Annadata services into a single actionable dashboard.
+          </p>
+        </div>
+        <Button size="sm" variant="outline" onClick={handleExportPDF} className="shrink-0">
+          Export PDF Report
+        </Button>
       </div>
 
       {/* Row 1: Farmer Profile + Overall Score + Quick Stats */}
