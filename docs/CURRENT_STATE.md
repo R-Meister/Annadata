@@ -7,9 +7,9 @@
 
 ## Executive Summary
 
-Annadata OS is a multi-service AI agriculture platform with **11 FastAPI microservices**, a **Next.js 16 frontend**, and full Docker Compose orchestration (15 containers). The platform has **119 API endpoints** and a navigable 16-route dashboard.
+Annadata OS is a multi-service AI agriculture platform with **11 FastAPI microservices**, a **Next.js 16 frontend**, and full Docker Compose orchestration (15 containers). The platform has **119 API endpoints** and a navigable 23-route dashboard.
 
-However, **only 2 of 11 services use real ML/data**. The remaining 9 are simulated via hardcoded lookups, seeded RNG, and rule-based heuristics. The frontend has **zero data visualizations**, **no maps**, **no real-time features**, and **no LLM integration**. Dashboard stats are hardcoded strings.
+However, **only 3-4 of 11 services use real ML/data**. The remaining services are simulated via hardcoded lookups, seeded RNG, and rule-based heuristics. The frontend now includes **Recharts visualizations**, **Leaflet maps**, and **LLM-backed chat**. Dashboard stats are still partially simulated on some pages.
 
 ---
 
@@ -84,10 +84,10 @@ However, **only 2 of 11 services use real ML/data**. The remaining 9 are simulat
 | Yield estimation | Formula-based, not ML |
 | `/chat` | Pattern-matched responses, labeled "simulated Gemini" |
 
-### Kisaan Sahayak (Port 8006) -- Fully Simulated
+### Kisaan Sahayak (Port 8006) -- Partially Real
 | Feature | Reality |
 |---------|---------|
-| `/chat` | **100% keyword matching against static FAQ** -- zero LLM |
+| `/chat` | **Gemini Flash LLM integration + keyword fallback** |
 | `/agent/vision` | Hardcoded PlantVillage class names via string matching |
 | `/agent/weather` | Seeded RNG weather generation |
 | `/agent/market` | Hardcoded base prices with RNG noise |
@@ -115,11 +115,11 @@ However, **only 2 of 11 services use real ML/data**. The remaining 9 are simulat
 | Blockchain | SHA-256 chaining is real math, but in-memory only |
 | Community reporting | Functional but in-memory, no persistence |
 
-### Mausam Chakra (Port 8011) -- Fully Simulated
+### Mausam Chakra (Port 8011) -- Partially Real
 | Feature | Reality |
 |---------|---------|
-| All weather data | Seeded RNG with seasonal/diurnal patterns |
-| OpenWeather API | Env var exists, **completely unused** |
+| Weather data | **OpenWeather API integrated** with fallback to seeded RNG |
+| OpenWeather API | **Used when API key is configured** |
 | Sentinel Hub | Env var exists, **completely unused** |
 | Quantum VQR | Simulated, not Qiskit execution |
 
@@ -128,25 +128,23 @@ However, **only 2 of 11 services use real ML/data**. The remaining 9 are simulat
 ## Frontend State
 
 ### What Works
-- 16-route Next.js 16 dashboard (App Router, TypeScript strict mode)
+- 23-route Next.js 16 dashboard (App Router, TypeScript strict mode)
 - API rewrites to all 11 backend services via `next.config.ts`
 - Auth state management (Zustand) with login/register
 - Clean card-based UI with Tailwind CSS v4
 - All service pages render feature cards
-- Sidebar navigation with 12 items
+- Recharts charts on all dashboards + Leaflet maps on key pages
+- LLM-enabled chat UI (Kisaan Sahayak) with session memory + voice input
+- Farmer Digital Twin, Impact, Sustainability, Alerts, Architecture, Status, Government dashboards
+- Sidebar navigation with full service coverage
 - Header with search, notifications, user dropdown
 
 ### What Does NOT Work / Is Missing
 
 | Gap | Impact | Detail |
 |-----|--------|--------|
-| **No data visualizations** | CRITICAL | Every chart slot is a placeholder div. Recharts is in `package.json` but completely unused |
-| **No map integration** | HIGH | No leaflet/mapbox/google maps anywhere. No mandi map, no plot map, no route visualization |
-| **No real-time features** | HIGH | No WebSockets, no SSE, no polling. Dashboard is fully static after page load |
-| **No LLM chat** | HIGH | Kisaan Sahayak chat is keyword matching. If a judge types a free-form question, it fails |
-| **No weather API** | MEDIUM | `OPENWEATHER_API_KEY` env var exists but is never read by any service |
-| **No animations** | MEDIUM | GSAP and Lottie are in `package.json` but unused. Landing page is clean but static |
-| **Hardcoded dashboard stats** | MEDIUM | "12,450 Active Farmers", "89% Yield Accuracy" -- all static strings |
+| **No real-time features** | HIGH | No WebSockets, no SSE, no polling. Dashboard is static after page load |
+| **Hardcoded dashboard stats** | MEDIUM | Some stats are still simulated / static strings |
 | **Static activity feed** | LOW | "Recent Activity" in dashboard overview is a hardcoded array |
 
 ---
@@ -177,7 +175,7 @@ Only the auth system actively writes to PostgreSQL. All service data lives in in
 | Check | Status | Detail |
 |-------|--------|--------|
 | Python tests | 55/55 passing | Unit + integration |
-| Frontend build | Passing | All 16 routes generated |
+| Frontend build | Passing | All 23 routes generated |
 | ESLint | 0 errors, 0 warnings | Fixed during this sprint |
 | Docker Compose config | Valid | `docker compose config --quiet` passes |
 | CI pipeline | Configured | `.github/workflows/ci.yml` |
