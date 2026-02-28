@@ -17,13 +17,17 @@ from uuid import uuid4
 
 import numpy as np
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from services.shared.auth.router import router as auth_router, setup_rate_limiting
 from services.shared.config import settings
-from services.shared.db.session import close_db, init_db
+from services.shared.db.session import close_db, init_db, get_db
+from services.shared.db.models import IrrigationPlot, IrrigationEvent, ValveState
 
 # ============================================================
 # Constants & Crop Database
@@ -123,18 +127,9 @@ MONTHLY_EFFECTIVE_RAINFALL_MM_PER_DAY: dict[int, float] = {
     12: 0.3,
 }
 
-# ============================================================
-# In-memory stores
-# ============================================================
-
-# Registered plots keyed by plot_id
-_plots: dict[str, dict] = {}
-
-# Irrigation event log: list of dicts with plot_id, farm_id, date, water_mm, method
-_irrigation_events: list[dict] = []
-
-# IoT valve states keyed by plot_id
-_valve_states: dict[str, dict] = {}
+# DB: _plots → IrrigationPlot table
+# DB: _irrigation_events → IrrigationEvent table
+# DB: _valve_states → ValveState table
 
 # ============================================================
 # Enums
@@ -536,24 +531,25 @@ async def root():
 @app.post(
     "/register-plot", response_model=PlotResponse, status_code=status.HTTP_201_CREATED
 )
-async def register_plot(body: PlotRegistration):
+async def register_plot(body: PlotRegistration, db: AsyncSession = Depends(get_db)):
     """Register a new plot so that schedule and sensor endpoints have context."""
     plot_id = f"plot-{uuid4().hex[:8]}"
     now = datetime.now(timezone.utc)
-    record = {
-        "plot_id": plot_id,
-        "farm_id": body.farm_id,
-        "crop": body.crop.lower(),
-        "area_hectares": body.area_hectares,
-        "soil_type": body.soil_type.value,
-        "irrigation_method": body.irrigation_method.value,
-        "current_moisture_pct": body.current_moisture_pct,
-        "latitude": body.latitude,
-        "longitude": body.longitude,
-        "registered_at": now.isoformat(),
-        "irrigation_active": False,
-    }
-    _plots[plot_id] = record
+    db_plot = IrrigationPlot(
+        plot_id=plot_id,
+        farm_id=body.farm_id,
+        crop=body.crop.lower(),
+        area_hectares=body.area_hectares,
+        soil_type=body.soil_type.value,
+        irrigation_method=body.irrigation_method.value,
+        current_moisture_pct=body.current_moisture_pct,
+        latitude=body.latitude,
+        longitude=body.longitude,
+        irrigation_active=False,
+    )
+    db.add(db_plot)
+    await db.flush()
+    record = db_plot.to_dict()
     return PlotResponse(**{k: record[k] for k in PlotResponse.model_fields})
 
 
@@ -578,25 +574,29 @@ async def get_irrigation_schedule(
     method: IrrigationMethod = Query(
         default=IrrigationMethod.flood, description="Irrigation method"
     ),
+    db: AsyncSession = Depends(get_db),
 ):
     """Compute a 7-day irrigation schedule for a plot.
 
     If the plot has been registered via POST /register-plot, its stored
     attributes are used as defaults. Query parameters override stored values.
     """
-    # Resolve plot context
-    plot = _plots.get(plot_id)
-    effective_crop = (crop or (plot["crop"] if plot else None) or "wheat").lower()
-    effective_area = area_hectares or (plot["area_hectares"] if plot else 1.0)
+    # Resolve plot context (from DB)
+    result = await db.execute(
+        select(IrrigationPlot).where(IrrigationPlot.plot_id == plot_id)
+    )
+    plot = result.scalar_one_or_none()
+    effective_crop = (crop or (plot.crop if plot else None) or "wheat").lower()
+    effective_area = area_hectares or (plot.area_hectares if plot else 1.0)
     effective_moisture = (
         current_moisture_pct
         if current_moisture_pct is not None
-        else (plot["current_moisture_pct"] if plot else 25.0)
+        else (plot.current_moisture_pct if plot else 25.0)
     )
     effective_method = (
         method.value
         if crop is not None
-        else (plot["irrigation_method"] if plot else method.value)
+        else (plot.irrigation_method if plot else method.value)
     )
     # Ensure method is valid
     if effective_method not in IRRIGATION_EFFICIENCY:
@@ -631,7 +631,7 @@ async def get_irrigation_schedule(
     # ---------- Soil moisture deficit adjustment ----------
     # If current moisture is far below field capacity, front-load water
     soil_props = SOIL_PROPERTIES.get(
-        plot["soil_type"] if plot else "loam", SOIL_PROPERTIES["loam"]
+        plot.soil_type if plot else "loam", SOIL_PROPERTIES["loam"]
     )
     fc = soil_props["field_capacity"]
     deficit_mm = (
@@ -698,28 +698,28 @@ async def get_irrigation_schedule(
             )
         )
 
-    # Record synthetic irrigation events for the usage endpoint
+    # Record synthetic irrigation events for the usage endpoint (DB)
     for entry in schedule:
         if entry.water_volume_liters > 0:
-            _irrigation_events.append(
-                {
-                    "plot_id": plot_id,
-                    "farm_id": plot["farm_id"] if plot else "unknown",
-                    "crop": effective_crop,
-                    "area_hectares": effective_area,
-                    "date": entry.date,
-                    "water_liters": entry.water_volume_liters,
-                    "water_mm": entry.water_depth_mm,
-                    "method": effective_method,
-                }
+            db.add(
+                IrrigationEvent(
+                    plot_id=plot_id,
+                    farm_id=plot.farm_id if plot else "unknown",
+                    crop=effective_crop,
+                    area_hectares=effective_area,
+                    date=entry.date,
+                    water_liters=entry.water_volume_liters,
+                    water_mm=entry.water_depth_mm,
+                    method=effective_method,
+                )
             )
+    await db.flush()
 
     # Update stored moisture (optimistic: assume irrigation brings it toward FC)
     if plot:
         avg_applied_mm = float(np.mean([e.water_depth_mm for e in schedule]))
-        plot["current_moisture_pct"] = min(
-            fc, effective_moisture + avg_applied_mm * 0.3
-        )
+        plot.current_moisture_pct = min(fc, effective_moisture + avg_applied_mm * 0.3)
+        await db.flush()
 
     return ScheduleResponse(
         plot_id=plot_id,
@@ -748,6 +748,7 @@ async def get_irrigation_schedule(
 async def get_water_usage(
     farm_id: Optional[str] = Query(default=None, description="Filter by farm ID"),
     days: int = Query(default=30, ge=1, le=365, description="Look-back period in days"),
+    db: AsyncSession = Depends(get_db),
 ):
     """Compute water usage analytics from recorded irrigation events.
 
@@ -756,11 +757,24 @@ async def get_water_usage(
     now = datetime.now(timezone.utc)
     cutoff = (now - timedelta(days=days)).date().isoformat()
 
-    # Filter events
+    # Filter events (DB)
+    stmt = select(IrrigationEvent).where(IrrigationEvent.date >= cutoff)
+    if farm_id is not None:
+        stmt = stmt.where(IrrigationEvent.farm_id == farm_id)
+    result = await db.execute(stmt)
+    rows = result.scalars().all()
     events = [
-        e
-        for e in _irrigation_events
-        if e["date"] >= cutoff and (farm_id is None or e["farm_id"] == farm_id)
+        {
+            "plot_id": r.plot_id,
+            "farm_id": r.farm_id,
+            "crop": r.crop,
+            "area_hectares": r.area_hectares,
+            "date": r.date,
+            "water_liters": r.water_liters,
+            "water_mm": r.water_mm,
+            "method": r.method,
+        }
+        for r in rows
     ]
 
     if not events:
@@ -843,7 +857,7 @@ async def get_water_usage(
 
 
 @app.get("/sensors/{plot_id}", response_model=SensorResponse)
-async def get_sensor_data(plot_id: str):
+async def get_sensor_data(plot_id: str, db: AsyncSession = Depends(get_db)):
     """Return simulated sensor readings with realistic distributions.
 
     Uses numpy random seeded by plot_id + current hour so values are
@@ -859,11 +873,14 @@ async def get_sensor_data(plot_id: str):
     )
     rng = np.random.default_rng(seed=seed)
 
-    plot = _plots.get(plot_id)
+    result_plot = await db.execute(
+        select(IrrigationPlot).where(IrrigationPlot.plot_id == plot_id)
+    )
+    plot = result_plot.scalar_one_or_none()
     climate = MONTHLY_CLIMATE.get(month, MONTHLY_CLIMATE[6])
 
     # --- Soil moisture ---
-    base_moisture = plot["current_moisture_pct"] if plot else 25.0
+    base_moisture = plot.current_moisture_pct if plot else 25.0
     # Normal distribution around base moisture, σ = 3%
     soil_moisture = float(np.clip(rng.normal(base_moisture, 3.0), 2.0, 95.0))
 
@@ -880,18 +897,19 @@ async def get_sensor_data(plot_id: str):
     # If we have a plot and irrigation is "active" (simple heuristic: first few hours after schedule)
     irrigation_active = False
     if plot:
-        # Check if any recent event is for today
+        # Check if any recent event is for today (DB)
         today_str = now.date().isoformat()
-        recent_events = [
-            e
-            for e in _irrigation_events
-            if e["plot_id"] == plot_id and e["date"] == today_str
-        ]
+        stmt = select(IrrigationEvent).where(
+            IrrigationEvent.plot_id == plot_id,
+            IrrigationEvent.date == today_str,
+        )
+        recent_result = await db.execute(stmt)
+        recent_events = recent_result.scalars().all()
         if recent_events and 5 <= hour <= 8:
             irrigation_active = True
 
     if irrigation_active:
-        method = plot["irrigation_method"] if plot else "flood"
+        method = plot.irrigation_method if plot else "flood"
         base_flow = FLOW_RATES.get(method, 80.0)
         flow_rate = float(
             np.clip(rng.normal(base_flow, base_flow * 0.05), 0.0, base_flow * 1.5)
@@ -962,7 +980,9 @@ async def get_sensor_data(plot_id: str):
 
 
 @app.post("/iot/valve-control", response_model=ValveStatusResponse)
-async def iot_valve_control(body: ValveControlRequest):
+async def iot_valve_control(
+    body: ValveControlRequest, db: AsyncSession = Depends(get_db)
+):
     """Control a solar-powered smart irrigation valve (IoT).
 
     Actions
@@ -974,7 +994,10 @@ async def iot_valve_control(body: ValveControlRequest):
       current moisture.
     """
     now = datetime.now(timezone.utc)
-    plot = _plots.get(body.plot_id)
+    result_plot = await db.execute(
+        select(IrrigationPlot).where(IrrigationPlot.plot_id == body.plot_id)
+    )
+    plot = result_plot.scalar_one_or_none()
 
     # Seed an RNG for simulated hardware readings
     seed = (hash(body.plot_id) + now.timetuple().tm_yday * 100 + now.hour) % (2**31)
@@ -993,11 +1016,11 @@ async def iot_valve_control(body: ValveControlRequest):
 
     if body.action == ValveAction.auto:
         # Auto-mode: decide based on soil moisture vs field capacity
-        soil_type_key = plot["soil_type"] if plot else "loam"
+        soil_type_key = plot.soil_type if plot else "loam"
         soil_props = SOIL_PROPERTIES.get(soil_type_key, SOIL_PROPERTIES["loam"])
         fc = soil_props["field_capacity"]
         wp = soil_props["wilting_point"]
-        current_moisture = plot["current_moisture_pct"] if plot else 25.0
+        current_moisture = plot.current_moisture_pct if plot else 25.0
 
         # Management Allowable Depletion (MAD) threshold – irrigate when
         # moisture drops below 50 % of available water above wilting point
@@ -1032,31 +1055,48 @@ async def iot_valve_control(body: ValveControlRequest):
         valve_status = "closed"
         flow_rate_pct = 0.0
 
-    # Persist state in-memory
-    _valve_states[body.plot_id] = {
-        "plot_id": body.plot_id,
-        "valve_status": valve_status,
-        "flow_rate_pct": round(flow_rate_pct, 1),
-        "battery_level_pct": round(battery_level, 1),
-        "solar_charge_watts": solar_charge_watts,
-        "last_action": body.action.value,
-        "last_action_timestamp": now.isoformat(),
-        "auto_decision_reason": auto_reason,
-    }
+    # Persist state (DB upsert)
+    existing_result = await db.execute(
+        select(ValveState).where(ValveState.plot_id == body.plot_id)
+    )
+    existing_valve = existing_result.scalar_one_or_none()
+    if existing_valve:
+        existing_valve.valve_status = valve_status
+        existing_valve.flow_rate_pct = round(flow_rate_pct, 1)
+        existing_valve.battery_level_pct = round(battery_level, 1)
+        existing_valve.solar_charge_watts = solar_charge_watts
+        existing_valve.last_action = body.action.value
+        existing_valve.last_action_timestamp = now.isoformat()
+        existing_valve.auto_decision_reason = auto_reason
+        db_valve = existing_valve
+    else:
+        db_valve = ValveState(
+            plot_id=body.plot_id,
+            valve_status=valve_status,
+            flow_rate_pct=round(flow_rate_pct, 1),
+            battery_level_pct=round(battery_level, 1),
+            solar_charge_watts=solar_charge_watts,
+            last_action=body.action.value,
+            last_action_timestamp=now.isoformat(),
+            auto_decision_reason=auto_reason,
+        )
+        db.add(db_valve)
+    await db.flush()
 
-    return ValveStatusResponse(**_valve_states[body.plot_id])
+    return ValveStatusResponse(**db_valve.to_dict())
 
 
 @app.get("/iot/valve-status/{plot_id}", response_model=ValveStatusResponse)
-async def iot_valve_status(plot_id: str):
+async def iot_valve_status(plot_id: str, db: AsyncSession = Depends(get_db)):
     """Return the current valve status for a plot.
 
     If the valve has never been controlled, a default "closed" state is
     returned.
     """
-    state = _valve_states.get(plot_id)
+    result = await db.execute(select(ValveState).where(ValveState.plot_id == plot_id))
+    state = result.scalar_one_or_none()
     if state:
-        return ValveStatusResponse(**state)
+        return ValveStatusResponse(**state.to_dict())
 
     # No prior state – return sensible defaults
     now = datetime.now(timezone.utc)

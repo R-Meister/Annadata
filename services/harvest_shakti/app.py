@@ -20,13 +20,17 @@ from typing import Optional
 
 import numpy as np
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from services.shared.auth.router import router as auth_router, setup_rate_limiting
 from services.shared.config import settings
-from services.shared.db.session import close_db, init_db
+from services.shared.db.session import close_db, init_db, get_db
+from services.shared.db.models import HarvestPlot
 
 # ---------------------------------------------------------------------------
 # Crop yield reference database
@@ -397,11 +401,7 @@ class ChatResponse(BaseModel):
     generated_at: str
 
 
-# ---------------------------------------------------------------------------
-# In-memory plot store
-# ---------------------------------------------------------------------------
-
-_plot_store: dict[str, PlotRegistration] = {}
+# DB: _plot_store → HarvestPlot table (harvest_plots)
 
 # ---------------------------------------------------------------------------
 # Irrigation & pest multiplier look-ups
@@ -1264,7 +1264,7 @@ async def root():
     response_model=PlotRegistrationResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def register_plot(body: PlotRegistration):
+async def register_plot(body: PlotRegistration, db: AsyncSession = Depends(get_db)):
     """Register a new agricultural plot for tracking."""
     crop_key = body.crop.lower().strip()
     if crop_key not in CROP_YIELD_DATA:
@@ -1273,9 +1273,19 @@ async def register_plot(body: PlotRegistration):
             detail=f"Unsupported crop '{body.crop}'. Supported: {list(CROP_YIELD_DATA.keys())}",
         )
 
-    # Normalise crop name before storing
-    stored = body.model_copy(update={"crop": crop_key})
-    _plot_store[body.plot_id] = stored
+    # Persist to DB
+    db_plot = HarvestPlot(
+        plot_id=body.plot_id,
+        crop=crop_key,
+        variety=body.variety,
+        area_hectares=body.area_hectares,
+        sowing_date=body.sowing_date,
+        soil_health_score=body.soil_health_score,
+        irrigation_type=body.irrigation_type.value,
+        region=body.region,
+    )
+    db.add(db_plot)
+    await db.flush()
 
     crop_data = CROP_YIELD_DATA[crop_key]
     maturity_date = body.sowing_date + timedelta(days=crop_data["growth_duration_days"])
@@ -1301,15 +1311,17 @@ async def estimate_yield(
     pest_pressure: PestPressure = Query(
         default=PestPressure.none, description="Pest pressure level"
     ),
+    db: AsyncSession = Depends(get_db),
 ):
     """Estimate crop yield for a registered plot with real computation."""
-    if plot_id not in _plot_store:
+    result = await db.execute(select(HarvestPlot).where(HarvestPlot.plot_id == plot_id))
+    plot = result.scalar_one_or_none()
+    if plot is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Plot '{plot_id}' not found. Register it first via POST /register-plot.",
         )
 
-    plot = _plot_store[plot_id]
     crop_data = CROP_YIELD_DATA[plot.crop]
 
     # Base yield
@@ -1319,7 +1331,7 @@ async def estimate_yield(
     # Multipliers
     soil_factor = _clamp(plot.soil_health_score / 75.0, 0.6, 1.3)
     weather_factor = _clamp(weather_score / 75.0, 0.5, 1.2)
-    irr_factor = IRRIGATION_FACTOR.get(plot.irrigation_type.value, 0.90)
+    irr_factor = IRRIGATION_FACTOR.get(plot.irrigation_type, 0.90)
     pest_factor = PEST_FACTOR.get(pest_pressure.value, 1.0)
 
     combined = soil_factor * weather_factor * irr_factor * pest_factor
@@ -1361,15 +1373,15 @@ async def estimate_yield(
 
 
 @app.get("/harvest-window/{plot_id}", response_model=HarvestWindowResponse)
-async def get_harvest_window(plot_id: str):
+async def get_harvest_window(plot_id: str, db: AsyncSession = Depends(get_db)):
     """Compute the optimal harvest window for a registered plot."""
-    if plot_id not in _plot_store:
+    result = await db.execute(select(HarvestPlot).where(HarvestPlot.plot_id == plot_id))
+    plot = result.scalar_one_or_none()
+    if plot is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Plot '{plot_id}' not found. Register it first via POST /register-plot.",
         )
-
-    plot = _plot_store[plot_id]
     crop_data = CROP_YIELD_DATA[plot.crop]
     growth_days = crop_data["growth_duration_days"]
 
