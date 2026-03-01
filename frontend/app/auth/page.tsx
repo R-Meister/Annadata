@@ -108,7 +108,7 @@ function AuthForm() {
         password,
         full_name: fullName,
         phone: phone || undefined,
-        role: role ? role.toUpperCase() : undefined,
+        role: role || undefined,
         state: state || undefined,
         district: district || undefined,
       });
