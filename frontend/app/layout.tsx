@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { QueryProvider } from "@/lib/query-client";
 
@@ -7,12 +7,15 @@ export const metadata: Metadata = {
   description:
     "Multi-service AI agriculture platform for Indian farmers. MSP Mitra, SoilScan AI, Fasal Rakshak, Jal Shakti, Harvest Shakti, Kisaan Sahayak.",
   manifest: "/manifest.json",
-  themeColor: "#16a34a",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
     title: "Annadata OS",
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#16a34a",
 };
 
 export default function RootLayout({
@@ -24,7 +27,6 @@ export default function RootLayout({
     <html lang="en">
       <head>
         <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#16a34a" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-title" content="Annadata OS" />
       </head>
