@@ -20,23 +20,7 @@ import type { NextRequest } from "next/server";
  * lives client-side.
  */
 export function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
-
-  // Check for auth cookie (set client-side on login, cleared on logout)
-  const hasAuthCookie = request.cookies.has("annadata-authed");
-
-  // If user is on /auth but already authenticated, redirect to dashboard
-  if (pathname === "/auth" && hasAuthCookie) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
-  }
-
-  // If user is on protected routes without auth cookie, redirect to /auth
-  if (pathname.startsWith("/dashboard") && !hasAuthCookie) {
-    const loginUrl = new URL("/auth", request.url);
-    loginUrl.searchParams.set("redirect", pathname);
-    return NextResponse.redirect(loginUrl);
-  }
-
+  // BYPASS AUTH
   return NextResponse.next();
 }
 

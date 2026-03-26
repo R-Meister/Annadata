@@ -247,80 +247,97 @@ export default function HomePage() {
       });
 
       // Stats — scroll triggered stagger
-      gsap.from("[data-animate='stat']", {
+      gsap.fromTo("[data-animate='stat']", {
+        opacity: 0,
+        y: 40,
+      }, {
         scrollTrigger: {
           trigger: "[data-section='stats']",
           start: "top 85%",
           once: true,
         },
-        opacity: 0,
-        y: 40,
+        opacity: 1,
+        y: 0,
         stagger: 0.1,
         duration: 0.6,
         ease: "power2.out",
       });
 
       // Services section title
-      gsap.from("[data-animate='services-header']", {
+      gsap.fromTo("[data-animate='services-header']", {
+        opacity: 0,
+        y: 30,
+      }, {
         scrollTrigger: {
           trigger: "[data-section='services']",
           start: "top 85%",
           once: true,
         },
-        opacity: 0,
-        y: 30,
+        opacity: 1,
+        y: 0,
         duration: 0.8,
         ease: "power2.out",
       });
 
       // Service cards — staggered reveal
-      gsap.from("[data-animate='service-card']", {
+      gsap.fromTo("[data-animate='service-card']", {
+        opacity: 0,
+        y: 50,
+      }, {
         scrollTrigger: {
           trigger: "[data-section='services']",
           start: "top 75%",
           once: true,
         },
-        opacity: 0,
-        y: 50,
+        opacity: 1,
+        y: 0,
         stagger: 0.06,
         duration: 0.5,
         ease: "power2.out",
       });
 
       // Team section
-      gsap.from("[data-animate='team-header']", {
+      gsap.fromTo("[data-animate='team-header']", {
+        opacity: 0,
+        y: 30,
+      }, {
         scrollTrigger: {
           trigger: "[data-section='team']",
           start: "top 85%",
           once: true,
         },
-        opacity: 0,
-        y: 30,
+        opacity: 1,
+        y: 0,
         duration: 0.8,
         ease: "power2.out",
       });
 
-      gsap.from("[data-animate='team-card']", {
+      gsap.fromTo("[data-animate='team-card']", {
+        opacity: 0,
+        scale: 0.9,
+      }, {
         scrollTrigger: {
           trigger: "[data-section='team']",
           start: "top 80%",
           once: true,
         },
-        opacity: 0,
-        scale: 0.9,
+        opacity: 1,
+        scale: 1,
         stagger: 0.1,
         duration: 0.5,
         ease: "back.out(1.5)",
       });
 
       // Tech stack
-      gsap.from("[data-animate='tech']", {
+      gsap.fromTo("[data-animate='tech']", {
+        opacity: 0,
+      }, {
         scrollTrigger: {
           trigger: "[data-section='tech']",
           start: "top 90%",
           once: true,
         },
-        opacity: 0,
+        opacity: 1,
         duration: 1,
         ease: "power2.out",
       });

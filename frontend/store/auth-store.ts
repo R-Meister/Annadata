@@ -39,9 +39,18 @@ interface AuthState {
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
-      user: null,
-      token: null,
-      isAuthenticated: false,
+      user: {
+        id: "1",
+        email: "test@example.com",
+        full_name: "Test User",
+        phone: "+91 99999 99999",
+        role: "farmer",
+        state: "Punjab",
+        district: "Ludhiana",
+        is_active: true
+      },
+      token: "dummy_token",
+      isAuthenticated: true,
 
       login: (token, user) => {
         setAuthCookie();
@@ -72,15 +81,8 @@ export const useAuthStore = create<AuthState>()(
       }),
       onRehydrateStorage: () => (state) => {
         if (state) {
-          const authenticated =
-            state.token !== null && state.user !== null;
-          state.isAuthenticated = authenticated;
-          // Sync cookie with persisted state
-          if (authenticated) {
-            setAuthCookie();
-          } else {
-            clearAuthCookie();
-          }
+          state.isAuthenticated = true;
+          setAuthCookie();
         }
       },
     },
