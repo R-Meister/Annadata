@@ -157,6 +157,59 @@ const TIER_PRICES = [
   { name: "Enterprise", price: "\u20B9999/mo", color: CHART_COLORS.purple },
 ];
 
+/* ------------------------------------------------------------------ */
+/*  B2G (Government) Revenue Model Data                                */
+/* ------------------------------------------------------------------ */
+
+const B2G_PRICING = [
+  {
+    tier: "District Dashboard",
+    price: "\u20B950,000/year",
+    target: "District Collectors",
+    features: [
+      "Real-time farmer registry",
+      "Scheme enrollment tracking",
+      "Crop health heatmaps",
+      "Weather alert distribution",
+    ],
+  },
+  {
+    tier: "State Analytics",
+    price: "\u20B95,00,000/year",
+    target: "State Agriculture Dept",
+    features: [
+      "Multi-district aggregation",
+      "Policy impact metrics",
+      "Subsidy optimization",
+      "API access for integration",
+    ],
+  },
+  {
+    tier: "National Platform",
+    price: "Custom Pricing",
+    target: "Ministry of Agriculture",
+    features: [
+      "Pan-India coverage",
+      "Real-time monitoring",
+      "Ministry dashboard integration",
+      "Custom reporting",
+    ],
+  },
+];
+
+const REVENUE_BREAKDOWN = [
+  { name: "B2C (Farmers)", value: 60, color: CHART_COLORS.primary },
+  { name: "B2B (Agribusiness)", value: 25, color: CHART_COLORS.accent },
+  { name: "B2G (Government)", value: 15, color: CHART_COLORS.secondary },
+];
+
+const PROFITABILITY_METRICS = [
+  { label: "Break-even Point", value: "Month 18", subtext: "Year 2, Q2" },
+  { label: "Gross Margin", value: "78%", subtext: "SaaS industry standard" },
+  { label: "Burn Rate", value: "\u20B915L/month", subtext: "4-person team" },
+  { label: "Runway", value: "24 months", subtext: "With \u20B93.6 Cr seed" },
+];
+
 const SDG_GOALS = [
   {
     number: 1,
@@ -164,6 +217,8 @@ const SDG_GOALS = [
     color: "#e5243b",
     description:
       "AI-powered credit scoring enables financial inclusion for 50K+ unbanked farmers, facilitating \u20B9850Cr in agricultural loans.",
+    contribution:
+      "Kisan Credit Score enables \u20B950K-2L credit access per farmer, reducing poverty cycles through financial inclusion.",
   },
   {
     number: 2,
@@ -171,6 +226,8 @@ const SDG_GOALS = [
     color: "#dda63a",
     description:
       "Crop advisory and disease detection prevent 45,000 tonnes of crop loss annually, improving food security.",
+    contribution:
+      "20-35% yield improvement through AI-driven precision farming directly reduces food insecurity for smallholder farmers.",
   },
   {
     number: 6,
@@ -178,6 +235,17 @@ const SDG_GOALS = [
     color: "#26bde2",
     description:
       "Precision irrigation recommendations have saved 2.1 billion litres of water through optimised usage.",
+    contribution:
+      "Jal Shakti reduces water consumption by 28% via smart irrigation scheduling and IoT-controlled drip systems.",
+  },
+  {
+    number: 8,
+    title: "Decent Work & Economic Growth",
+    color: "#a21942",
+    description:
+      "Market linkage via MSP Mitra improves farmer income by 15-25% through better price discovery and direct mandi connections.",
+    contribution:
+      "Connects farmers directly to mandis, eliminating middlemen and ensuring fair prices for agricultural produce.",
   },
   {
     number: 13,
@@ -185,6 +253,17 @@ const SDG_GOALS = [
     color: "#3f7e44",
     description:
       "Weather-aware advisories and digital twin simulations help farmers adapt to climate variability and reduce resource waste.",
+    contribution:
+      "Carbon-optimised practices reduce CO2 emissions through SRI cultivation, organic inputs, and solar pumps.",
+  },
+  {
+    number: 15,
+    title: "Life on Land",
+    color: "#56c02b",
+    description:
+      "Crop rotation recommendations and reduced chemical usage improve the biodiversity index by 18%, restoring soil microbiome health.",
+    contribution:
+      "Integrated pest management and organic farming advisories protect terrestrial ecosystems and soil health.",
   },
 ];
 
@@ -310,9 +389,14 @@ export default function ImpactDashboardPage() {
     <div className="space-y-8">
       {/* ---- Header ---- */}
       <div>
-        <h1 className="text-3xl font-bold tracking-tight text-[var(--color-text)]">
-          Impact &amp; Economics Dashboard
-        </h1>
+        <div className="flex items-center gap-3 flex-wrap">
+          <h1 className="text-3xl font-bold tracking-tight text-[var(--color-text)]">
+            Impact &amp; Economics Dashboard
+          </h1>
+          <Badge variant="outline" className="border-amber-500 text-amber-600 bg-amber-50">
+            Projected Data - Based on market research and pilot studies
+          </Badge>
+        </div>
         <p className="mt-1 text-[var(--color-text-muted)]">
           Tracking Annadata OS&apos;s real-world impact on Indian agriculture
           and the underlying business economics powering sustainable growth.
@@ -459,6 +543,125 @@ export default function ImpactDashboardPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* B2G Revenue Model + Revenue Breakdown */}
+        <div className="grid gap-4 lg:grid-cols-2 mt-4">
+          {/* B2G Pricing Tiers */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">B2G Revenue Model</CardTitle>
+              <CardDescription>Government Partnership Opportunities</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {B2G_PRICING.map((tier) => (
+                  <div
+                    key={tier.tier}
+                    className="rounded-xl border-2 border-[var(--color-border)] bg-[var(--color-background)] p-4 hover:border-[var(--color-primary)] transition-colors"
+                  >
+                    <div className="flex items-start justify-between mb-2">
+                      <div>
+                        <Badge variant="outline" className="mb-1 text-xs">
+                          {tier.target}
+                        </Badge>
+                        <p className="font-semibold text-[var(--color-text)]">
+                          {tier.tier}
+                        </p>
+                      </div>
+                      <p className="text-lg font-bold" style={{ color: CHART_COLORS.primary }}>
+                        {tier.price}
+                      </p>
+                    </div>
+                    <ul className="text-sm space-y-1 text-[var(--color-text-muted)]">
+                      {tier.features.map((f) => (
+                        <li key={f} className="flex items-center gap-2">
+                          <svg className="h-3.5 w-3.5 shrink-0" style={{ color: CHART_COLORS.success }} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                          </svg>
+                          {f}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Revenue Breakdown Pie + Path to Profitability */}
+          <div className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Revenue Mix (Year 5)</CardTitle>
+                <CardDescription>B2C, B2B, and B2G contribution</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-6">
+                  <ResponsiveContainer width={140} height={140}>
+                    <PieChart>
+                      <Pie
+                        data={REVENUE_BREAKDOWN}
+                        dataKey="value"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={35}
+                        outerRadius={60}
+                        paddingAngle={2}
+                        animationDuration={CHART_DEFAULTS.animationDuration}
+                        animationEasing={CHART_DEFAULTS.animationEasing}
+                      >
+                        {REVENUE_BREAKDOWN.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={CHART_DEFAULTS.tooltipStyle}
+                        formatter={(value: number) => [`${value}%`, "Share"]}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="flex-1 space-y-2">
+                    {REVENUE_BREAKDOWN.map((item) => (
+                      <div key={item.name} className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="h-3 w-3 rounded-full"
+                            style={{ backgroundColor: item.color }}
+                          />
+                          <span className="text-sm text-[var(--color-text)]">{item.name}</span>
+                        </div>
+                        <span className="text-sm font-semibold text-[var(--color-text)]">
+                          {item.value}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Path to Profitability</CardTitle>
+                <CardDescription>Key financial milestones</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-3">
+                  {PROFITABILITY_METRICS.map((item) => (
+                    <div
+                      key={item.label}
+                      className="rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] p-3"
+                    >
+                      <p className="text-xs text-[var(--color-text-muted)]">{item.label}</p>
+                      <p className="text-lg font-bold text-[var(--color-text)]">{item.value}</p>
+                      <p className="text-xs text-[var(--color-text-muted)]">{item.subtext}</p>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       </section>
 
       {/* ---- Section 3: Unit Economics ---- */}

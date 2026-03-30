@@ -97,6 +97,14 @@ const IMPACT_METRICS = [
 // SDG alignment
 const SDG_ITEMS = [
   {
+    sdg: 1,
+    title: "No Poverty",
+    color: "#E5243B",
+    description: "End poverty in all its forms everywhere.",
+    contribution:
+      "Kisan Credit Score enables \u20B950K-2L credit access per farmer, breaking poverty cycles through financial inclusion for 50K+ previously unbanked farmers.",
+  },
+  {
     sdg: 2,
     title: "Zero Hunger",
     color: "#DDA63A",
@@ -111,6 +119,14 @@ const SDG_ITEMS = [
     description: "Ensure availability and sustainable management of water.",
     contribution:
       "Jal Shakti reduces water consumption by 28% via smart irrigation scheduling and IoT-controlled drip systems.",
+  },
+  {
+    sdg: 8,
+    title: "Decent Work & Economic Growth",
+    color: "#A21942",
+    description: "Promote sustained, inclusive economic growth and decent work.",
+    contribution:
+      "MSP Mitra market linkage improves farmer income by 15-25% through better price discovery and direct mandi connections, eliminating middlemen.",
   },
   {
     sdg: 12,
@@ -193,9 +209,14 @@ export default function SustainabilityPage() {
     <div className="space-y-8">
       {/* ---- Header ---- */}
       <div>
-        <h1 className="text-3xl font-bold tracking-tight text-[var(--color-text)]">
-          Sustainability Tracker
-        </h1>
+        <div className="flex items-center gap-3 flex-wrap">
+          <h1 className="text-3xl font-bold tracking-tight text-[var(--color-text)]">
+            Sustainability Tracker
+          </h1>
+          <Badge variant="outline" className="border-amber-500 text-amber-600 bg-amber-50">
+            Projected Data - Based on market research and pilot studies
+          </Badge>
+        </div>
         <p className="mt-1 text-[var(--color-text-muted)]">
           Carbon &amp; water footprint analytics, environmental impact scoring, and
           UN SDG alignment for your farming operations.

@@ -55,6 +55,11 @@ const nextConfig: NextConfig = {
         source: "/api/mausam-chakra/:path*",
         destination: `${process.env.NEXT_PUBLIC_MAUSAM_CHAKRA_URL || "http://mausam-chakra:8011"}/:path*`,
       },
+      // Gamification service
+      {
+        source: "/api/gamification/:path*",
+        destination: `${process.env.NEXT_PUBLIC_GAMIFICATION_URL || "http://gamification:8012"}/:path*`,
+      },
     ];
   },
 };
