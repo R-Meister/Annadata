@@ -706,3 +706,148 @@ class ForecastStats(Base):
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+# ============================================================
+# Gamification Models
+# ============================================================
+
+
+class SubscriptionTier(str, PyEnum):
+    """Subscription tiers for freemium model."""
+
+    FREE = "free"
+    PREMIUM = "premium"
+    ENTERPRISE = "enterprise"
+
+
+class QuestStatus(str, PyEnum):
+    """Status of user quests."""
+
+    PENDING = "pending"
+    COMPLETED = "completed"
+    EXPIRED = "expired"
+
+
+class UserProgress(Base):
+    """Tracks user's gamification progress: XP, level, streak.
+
+    This is the core gamification table that stores:
+    - Current XP and level
+    - Daily streak tracking
+    - Subscription tier
+    """
+
+    __tablename__ = "user_progress"
+
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True)
+    current_xp = Column(Integer, default=0, nullable=False)
+    current_level = Column(Integer, default=1, nullable=False)
+    total_xp_earned = Column(Integer, default=0, nullable=False)
+    current_streak = Column(Integer, default=0, nullable=False)
+    longest_streak = Column(Integer, default=0, nullable=False)
+    last_active_date = Column(Date, nullable=True)
+    subscription_tier = Column(
+        Enum(SubscriptionTier), default=SubscriptionTier.FREE, nullable=False
+    )
+    subscription_expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    def __repr__(self):
+        return f"<UserProgress {self.user_id} Level={self.current_level} XP={self.current_xp}>"
+
+    def to_dict(self):
+        return {
+            "user_id": str(self.user_id),
+            "current_xp": self.current_xp,
+            "current_level": self.current_level,
+            "total_xp_earned": self.total_xp_earned,
+            "current_streak": self.current_streak,
+            "longest_streak": self.longest_streak,
+            "last_active_date": self.last_active_date.isoformat()
+            if self.last_active_date
+            else None,
+            "subscription_tier": self.subscription_tier.value
+            if self.subscription_tier
+            else "free",
+            "subscription_expires_at": self.subscription_expires_at.isoformat()
+            if self.subscription_expires_at
+            else None,
+        }
+
+
+class XPEvent(Base):
+    """Log of XP-earning events for analytics and history.
+
+    Records every XP-earning action for:
+    - Analytics and insights
+    - XP history display
+    - Anti-fraud (detecting XP farming)
+    """
+
+    __tablename__ = "xp_events"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
+    )
+    action_type = Column(String(50), nullable=False, index=True)
+    xp_earned = Column(Integer, nullable=False)
+    event_data = Column(
+        JSON, nullable=True
+    )  # Named event_data to avoid SQLAlchemy reserved 'metadata'
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    def __repr__(self):
+        return f"<XPEvent {self.action_type} +{self.xp_earned}XP>"
+
+    def to_dict(self):
+        return {
+            "id": str(self.id),
+            "user_id": str(self.user_id),
+            "action_type": self.action_type,
+            "xp_earned": self.xp_earned,
+            "metadata": self.event_data,  # Return as 'metadata' in API response
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class UserQuest(Base):
+    """Tracks daily/weekly quest completion per user.
+
+    Quests are assigned daily and tracked here for completion.
+    Quest definitions are stored in-memory in the service.
+    """
+
+    __tablename__ = "user_quests"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True
+    )
+    quest_type = Column(String(20), nullable=False)  # daily, weekly
+    quest_id = Column(String(50), nullable=False, index=True)
+    status = Column(Enum(QuestStatus), default=QuestStatus.PENDING, nullable=False)
+    assigned_date = Column(Date, nullable=False, index=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    def __repr__(self):
+        return f"<UserQuest {self.quest_id} status={self.status}>"
+
+    def to_dict(self):
+        return {
+            "id": str(self.id),
+            "user_id": str(self.user_id),
+            "quest_type": self.quest_type,
+            "quest_id": self.quest_id,
+            "status": self.status.value if self.status else "pending",
+            "assigned_date": self.assigned_date.isoformat()
+            if self.assigned_date
+            else None,
+            "completed_at": self.completed_at.isoformat()
+            if self.completed_at
+            else None,
+        }
