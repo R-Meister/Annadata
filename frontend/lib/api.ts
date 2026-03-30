@@ -173,3 +173,142 @@ export const authApi = {
     });
   },
 };
+
+// ---------------------------------------------------------------------------
+// Gamification API Types
+// ---------------------------------------------------------------------------
+
+export interface UserProgressResponse {
+  user_id: string;
+  current_xp: number;
+  current_level: number;
+  xp_to_next_level: number;
+  progress_pct: number;
+  level_title: string;
+  level_title_hi: string;
+  level_badge: string;
+  current_streak: number;
+  longest_streak: number;
+  subscription_tier: string;
+  next_level: number | null;
+}
+
+export interface EarnXPResponse {
+  xp_earned: number;
+  total_xp: number;
+  level_up: boolean;
+  new_level?: number;
+  new_title?: string;
+  new_badge?: string;
+}
+
+export interface CheckinResponse {
+  message: string;
+  xp_earned: number;
+  streak: number;
+  streak_bonus: number;
+  already_checked_in: boolean;
+}
+
+export interface QuestResponse {
+  id: string;
+  title: string;
+  title_hi: string;
+  description: string;
+  description_hi: string;
+  xp_reward: number;
+  status: string;
+  action_required: string;
+}
+
+export interface SubscriptionResponse {
+  tier: string;
+  free_services: string[];
+  premium_services: string[];
+  enterprise_services: string[];
+  accessible_services: string[];
+}
+
+export interface LeaderboardEntry {
+  rank: number;
+  user_id: string;
+  total_xp: number;
+  level: number;
+  title: string;
+  badge: string;
+  streak: number;
+}
+
+// ---------------------------------------------------------------------------
+// Gamification API Client
+// ---------------------------------------------------------------------------
+
+const gamificationApi = createServiceApi(API_PREFIXES.gamification);
+
+export const gamificationService = {
+  /** Get user progress (XP, level, streak, tier) */
+  getProgress(userId: string) {
+    return gamificationApi.get<UserProgressResponse>(`/progress/${userId}`);
+  },
+
+  /** Earn XP for an action */
+  earnXP(userId: string, action: string, metadata?: Record<string, unknown>) {
+    return gamificationApi.post<EarnXPResponse>(
+      `/xp/earn?user_id=${userId}`,
+      { action, metadata }
+    );
+  },
+
+  /** Daily check-in */
+  checkin(userId: string) {
+    return gamificationApi.post<CheckinResponse>(`/checkin/${userId}`);
+  },
+
+  /** Get daily quests */
+  getDailyQuests(userId: string) {
+    return gamificationApi.get<QuestResponse[]>(`/quests/daily/${userId}`);
+  },
+
+  /** Complete a quest */
+  completeQuest(userId: string, questId: string) {
+    return gamificationApi.post<{ message: string; xp_earned: number; quest_id: string }>(
+      `/quests/${questId}/complete?user_id=${userId}`
+    );
+  },
+
+  /** Get subscription info */
+  getSubscription(userId: string) {
+    return gamificationApi.get<SubscriptionResponse>(`/subscription/${userId}`);
+  },
+
+  /** Upgrade subscription */
+  upgradeSubscription(userId: string, tier: "premium" | "enterprise") {
+    return gamificationApi.post<{ message: string; tier: string; bonus_xp: number }>(
+      `/subscription/upgrade?user_id=${userId}&new_tier=${tier}`
+    );
+  },
+
+  /** Get leaderboard */
+  getLeaderboard(limit = 10) {
+    return gamificationApi.get<{ leaderboard: LeaderboardEntry[]; count: number }>(
+      `/leaderboard?limit=${limit}`
+    );
+  },
+
+  /** Get XP history */
+  getXPHistory(userId: string, limit = 20) {
+    return gamificationApi.get<{ events: unknown[]; total_count: number }>(
+      `/xp/history/${userId}?limit=${limit}`
+    );
+  },
+
+  /** Get levels config */
+  getLevelsConfig() {
+    return gamificationApi.get<{ levels: unknown[] }>("/config/levels");
+  },
+
+  /** Get XP rewards config */
+  getRewardsConfig() {
+    return gamificationApi.get<{ rewards: Record<string, number> }>("/config/rewards");
+  },
+};

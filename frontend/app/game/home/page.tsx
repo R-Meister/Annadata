@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { useGameStore, selectCompletedQuests, getQuestsWithStatus } from "@/store/game-store";
+import { useGameSync } from "@/hooks/use-game-sync";
 import { getLevelInfo, formatXP, DAILY_QUESTS } from "@/lib/gamification";
 import {
   LevelBadge,
@@ -23,8 +24,10 @@ export default function HomePage() {
   const streak = useGameStore((state) => state.streak);
   const lastActiveDate = useGameStore((state) => state.lastActiveDate);
   const dailyCheckin = useGameStore((state) => state.dailyCheckin);
-  const addXP = useGameStore((state) => state.addXP);
   const completedQuests = useGameStore(selectCompletedQuests);
+  
+  // Use backend sync for XP and check-in
+  const { earnXP, checkin } = useGameSync();
 
   const quests = useMemo(() => getQuestsWithStatus(completedQuests), [completedQuests]);
   const levelInfo = getLevelInfo(xp);
@@ -36,9 +39,12 @@ export default function HomePage() {
   // Count completed quests
   const completedQuestsCount = quests.filter((q) => q.completed).length;
 
-  const handleCheckin = () => {
+  const handleCheckin = async () => {
     if (!hasCheckedInToday) {
-      dailyCheckin();
+      const result = await checkin();
+      if (result) {
+        dailyCheckin(); // Also update local state
+      }
     }
   };
 
@@ -49,24 +55,24 @@ export default function HomePage() {
       label: "Weather",
       labelHi: "मौसम",
       color: "bg-blue-100 text-blue-600",
-      action: () => addXP("weather_check"),
-      href: "/game/services",
+      action: () => earnXP("weather_check"),
+      href: "/game/service/mausam-chakra",
     },
     {
       icon: TrendingUp,
       label: "Prices",
       labelHi: "भाव",
       color: "bg-green-100 text-green-600",
-      action: () => addXP("market_check"),
-      href: "/game/services",
+      action: () => earnXP("market_check"),
+      href: "/game/service/msp-mitra",
     },
     {
       icon: Leaf,
       label: "Crop Scan",
       labelHi: "फसल स्कैन",
       color: "bg-red-100 text-red-600",
-      action: () => addXP("disease_scan"),
-      href: "/game/services",
+      action: () => earnXP("disease_scan"),
+      href: "/game/service/fasal-rakshak",
     },
   ];
 

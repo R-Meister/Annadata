@@ -51,6 +51,15 @@ interface GameState extends GameProgress {
   dismissLevelUp: () => void;
   resetDaily: () => void;
   reset: () => void;
+  updateProgress: (data: {
+    xp: number;
+    level: number;
+    levelTitle: string;
+    levelBadge: string;
+    streak: number;
+    longestStreak: number;
+    tier: SubscriptionTier;
+  }) => void;
 }
 
 // ============================================================
@@ -239,6 +248,22 @@ export const useGameStore = create<GameState>()(
             lastXPEarned: 0,
             showLevelUp: false,
             newLevelInfo: null,
+          });
+        },
+
+        updateProgress: (data) => {
+          const levelInfo = getLevelInfo(data.xp);
+          set({
+            xp: data.xp,
+            level: levelInfo.level.number,
+            levelTitle: levelInfo.level.title,
+            levelTitleHi: levelInfo.level.titleHi,
+            levelBadge: levelInfo.level.badge,
+            xpToNextLevel: levelInfo.xpToNextLevel,
+            progressPercent: levelInfo.progressPercent,
+            streak: data.streak,
+            longestStreak: data.longestStreak,
+            tier: data.tier,
           });
         },
       };
