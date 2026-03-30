@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import gsap from "gsap";
+import Lottie from "lottie-react";
 import { useGameStore } from "@/store/game-store";
+import coinsAnimation from "@/public/lottie/coins.json";
 
 /**
  * XP Burst Animation - Shows floating "+X XP" text when XP is earned
@@ -11,12 +13,13 @@ import { useGameStore } from "@/store/game-store";
 export function XPBurst() {
   const { showXPBurst, lastXPEarned, dismissXPBurst } = useGameStore();
   const containerRef = useRef<HTMLDivElement>(null);
-  const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    if (showXPBurst && containerRef.current) {
-      setIsVisible(true);
+    if (!containerRef.current) return;
 
+    let cleanup: (() => void) | undefined;
+
+    if (showXPBurst && containerRef.current) {
       // Create particle effects
       const particles = Array.from({ length: 8 }).map((_, i) => {
         const particle = document.createElement("div");
@@ -27,7 +30,7 @@ export function XPBurst() {
       });
 
       // Animate the main XP text
-      gsap.fromTo(
+      const textTweenIn = gsap.fromTo(
         containerRef.current.querySelector(".xp-text"),
         { opacity: 0, y: 20, scale: 0.5 },
         {
@@ -60,7 +63,7 @@ export function XPBurst() {
       });
 
       // Fade out and dismiss
-      gsap.to(containerRef.current.querySelector(".xp-text"), {
+      const textTweenOut = gsap.to(containerRef.current.querySelector(".xp-text"), {
         opacity: 0,
         y: -30,
         scale: 0.8,
@@ -68,20 +71,32 @@ export function XPBurst() {
         delay: 1,
         ease: "power2.in",
         onComplete: () => {
-          setIsVisible(false);
           dismissXPBurst();
         },
       });
+
+      cleanup = () => {
+        textTweenIn.kill();
+        textTweenOut.kill();
+        particles.forEach((particle) => particle.remove());
+      };
     }
+
+    return () => {
+      if (cleanup) cleanup();
+    };
   }, [showXPBurst, dismissXPBurst]);
 
-  if (!isVisible && !showXPBurst) return null;
+  if (!showXPBurst) return null;
 
   return (
     <div
       ref={containerRef}
       className="fixed top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 pointer-events-none"
     >
+      <div className="absolute inset-0 -z-10 scale-150 opacity-90">
+        <Lottie animationData={coinsAnimation} loop={false} />
+      </div>
       <div className="xp-text relative">
         <span className="text-4xl font-bold text-yellow-500 drop-shadow-lg">
           +{lastXPEarned} XP

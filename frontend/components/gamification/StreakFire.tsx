@@ -1,6 +1,8 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import Lottie from "lottie-react";
+import fireAnimation from "@/public/lottie/fire.json";
 
 interface StreakFireProps {
   streak: number;
@@ -31,16 +33,12 @@ export function StreakFire({ streak, className }: StreakFireProps) {
         className="relative"
         style={{ width: fireSize, height: fireSize }}
       >
-        {/* Animated fire emoji with glow */}
-        <span
-          className="absolute inset-0 flex items-center justify-center animate-pulse"
-          style={{
-            fontSize: fireSize * 0.8,
-            filter: `drop-shadow(0 0 ${8 + intensity * 12}px #f97316)`,
-          }}
+        <div
+          className="absolute inset-0"
+          style={{ filter: `drop-shadow(0 0 ${8 + intensity * 12}px #f97316)` }}
         >
-          🔥
-        </span>
+          <Lottie animationData={fireAnimation} loop />
+        </div>
 
         {/* Extra flames for high streaks */}
         {streak >= 7 && (

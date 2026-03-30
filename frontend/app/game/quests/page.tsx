@@ -40,7 +40,7 @@ export default function QuestsPage() {
                 <Trophy className="w-6 h-6 text-white" />
               </div>
               <div>
-                <p className="text-yellow-100 text-sm">Today's Progress</p>
+                <p className="text-yellow-100 text-sm">Today&apos;s Progress</p>
                 <p className="text-2xl font-bold">
                   {dailyCompleted}/{DAILY_QUESTS.length} Quests
                 </p>

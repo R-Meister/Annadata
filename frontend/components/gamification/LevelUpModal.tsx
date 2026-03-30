@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { X, Sparkles } from "lucide-react";
 import { useEffect, useRef } from "react";
 import gsap from "gsap";
+import Lottie from "lottie-react";
+import confettiAnimation from "@/public/lottie/confetti.json";
 
 /**
  * Level Up Modal - Celebratory modal shown when user levels up
@@ -72,6 +74,9 @@ export function LevelUpModal() {
         ref={modalRef}
         className="relative bg-white rounded-3xl p-8 max-w-sm mx-4 text-center shadow-2xl"
       >
+        <div className="absolute -inset-6 -z-10 pointer-events-none opacity-80">
+          <Lottie animationData={confettiAnimation} loop={false} />
+        </div>
         {/* Close button */}
         <button
           onClick={dismissLevelUp}

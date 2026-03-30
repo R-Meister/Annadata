@@ -181,7 +181,7 @@ export default function HomePage() {
       {/* Daily quests preview */}
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="font-semibold text-gray-800">Today's Quests</h2>
+          <h2 className="font-semibold text-gray-800">Today&apos;s Quests</h2>
           <Link
             href="/game/quests"
             className="text-sm text-green-600 font-medium"
