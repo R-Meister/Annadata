@@ -20,7 +20,21 @@ import type { NextRequest } from "next/server";
  * lives client-side.
  */
 export function middleware(request: NextRequest) {
-  // BYPASS AUTH
+  // BYPASS AUTH - commented out for production demo
+  /*
+  const { pathname } = request.nextUrl;
+  const hasAuthCookie = request.cookies.has("annadata-authed");
+
+  if (pathname === "/auth" && hasAuthCookie) {
+    return NextResponse.redirect(new URL("/dashboard", request.url));
+  }
+
+  if (pathname.startsWith("/dashboard") && !hasAuthCookie) {
+    const loginUrl = new URL("/auth", request.url);
+    loginUrl.searchParams.set("redirect", pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+  */
   return NextResponse.next();
 }
 
