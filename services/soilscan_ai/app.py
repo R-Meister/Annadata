@@ -23,6 +23,10 @@ from pydantic import BaseModel, Field
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+import os
+import json
+from openai import OpenAI
+from .serial_service import serial_service
 
 from services.shared.auth.router import router as auth_router, setup_rate_limiting
 from services.shared.config import settings
@@ -157,6 +161,15 @@ class BatchAnalyzeResponse(BaseModel):
 
     results: list[SoilAnalysisResponse]
     count: int
+
+class LiveScanRequest(BaseModel):
+    """Request for a live sensor scan."""
+    plot_id: str
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    soil_type: str | None = "loamy"
+    region: str | None = "north_india"
+
 
 
 # -------------------------------------------------------------------
@@ -552,7 +565,7 @@ def _build_recommendations(sample: SoilSampleRequest) -> list[Recommendation]:
 
 
 async def _run_analysis(
-    sample: SoilSampleRequest, db: AsyncSession
+    sample: SoilSampleRequest
 ) -> SoilAnalysisResponse:
     """
     Core analysis pipeline.
@@ -626,34 +639,7 @@ async def _run_analysis(
         analyzed_at=now,
     )
 
-    # Persist to PostgreSQL for later retrieval via /report and /history
-    db_record = SoilAnalysis(
-        analysis_id=analysis_id,
-        plot_id=sample.plot_id,
-        source="sensor_analysis",
-        latitude=sample.latitude,
-        longitude=sample.longitude,
-        soil_type=sample.soil_type,
-        temperature_celsius=sample.temperature_celsius,
-        nitrogen_ppm=sample.nitrogen_ppm,
-        phosphorus_ppm=sample.phosphorus_ppm,
-        potassium_ppm=sample.potassium_ppm,
-        ph_level=sample.ph_level,
-        organic_carbon_pct=sample.organic_carbon_pct,
-        moisture_pct=sample.moisture_pct,
-        ph_score=scores["ph"],
-        nitrogen_score=scores["nitrogen_ppm"],
-        phosphorus_score=scores["phosphorus_ppm"],
-        potassium_score=scores["potassium_ppm"],
-        organic_carbon_score=scores["organic_carbon_pct"],
-        moisture_score=scores["moisture_pct"],
-        health_score=health_score,
-        fertility_class=fertility_class,
-        recommendations=[r.model_dump() for r in recommendations],
-        analyzed_at=now,
-    )
-    db.add(db_record)
-    await db.flush()
+    # Persistence disabled for Demo Mode
 
     return result
 
@@ -1372,10 +1358,10 @@ def _run_quantum_correlation(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan: initialize and cleanup resources."""
-    await init_db()
+    """Application lifespan - Database initialization bypassed for Demo Mode."""
+    # await init_db()
     yield
-    await close_db()
+    # await close_db()
 
 
 app = FastAPI(
@@ -1438,16 +1424,15 @@ async def root():
 @app.post(
     "/analyze", response_model=SoilAnalysisResponse, status_code=status.HTTP_201_CREATED
 )
-async def analyze_soil(sample: SoilSampleRequest, db: AsyncSession = Depends(get_db)):
+async def analyze_soil(sample: SoilSampleRequest):
     """
     Analyze a single soil sample.
 
     Computes a health score (0-100) from pH, NPK, organic carbon, and
     moisture readings, classifies fertility, and returns actionable
-    recommendations.  The result is persisted to PostgreSQL so it can be
-    retrieved later via ``GET /report/{analysis_id}``.
+    recommendations.
     """
-    return await _run_analysis(sample, db)
+    return await _run_analysis(sample)
 
 
 @app.post(
@@ -1455,83 +1440,32 @@ async def analyze_soil(sample: SoilSampleRequest, db: AsyncSession = Depends(get
     response_model=BatchAnalyzeResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def batch_analyze(body: BatchAnalyzeRequest, db: AsyncSession = Depends(get_db)):
+async def batch_analyze(body: BatchAnalyzeRequest):
     """
     Analyze multiple soil samples in one request.
-
-    Useful for field-level analysis across several plots or grid
-    points.  Each sample is processed independently and stored.
     """
-    if not body.samples:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="At least one sample is required.",
-        )
-
-    results = [await _run_analysis(s, db) for s in body.samples]
+    results = []
+    for sample in body.samples:
+        results.append(await _run_analysis(sample))
     return BatchAnalyzeResponse(results=results, count=len(results))
 
 
 @app.get("/report/{analysis_id}", response_model=SoilAnalysisResponse)
-async def get_report(analysis_id: str, db: AsyncSession = Depends(get_db)):
+async def get_report(analysis_id: str):
     """
-    Retrieve a previously computed soil analysis report by its ID.
-
-    Returns 404 if the analysis_id is not found in the database.
+    Retrieve a report by ID - Persistence discovery disabled in Demo Mode.
     """
-    stmt = select(SoilAnalysis).where(SoilAnalysis.analysis_id == analysis_id)
-    result = await db.execute(stmt)
-    record = result.scalar_one_or_none()
-    if record is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Analysis '{analysis_id}' not found.",
-        )
-    return record.to_dict()
+    raise HTTPException(status_code=404, detail="Database persistence disabled in Demo Mode.")
 
 
 @app.get("/history", response_model=HistoryResponse)
 async def get_analysis_history(
     plot_id: str = Query(..., description="Plot ID to retrieve history for"),
-    db: AsyncSession = Depends(get_db),
 ):
     """
-    Return all analyses for a given plot, sorted by timestamp descending.
-
-    Also computes a trend indicator (improving / stable / declining)
-    based on the health-score trajectory across analyses, using numpy
-    linear regression.
+    In-memory history retrieval not implemented in Demo Mode.
     """
-    # Collect all analyses matching this plot_id from DB
-    stmt = (
-        select(SoilAnalysis)
-        .where(SoilAnalysis.plot_id == plot_id)
-        .order_by(SoilAnalysis.analyzed_at.desc())
-    )
-    result = await db.execute(stmt)
-    rows = result.scalars().all()
-
-    matching = [r.to_dict() for r in rows]
-
-    entries = [
-        HistoryEntry(
-            analysis_id=r["analysis_id"],
-            date=r["analyzed_at"][:10],  # YYYY-MM-DD portion
-            health_score=r["health_score"],
-            fertility_class=r["fertility_class"],
-        )
-        for r in matching
-    ]
-
-    # Trend is computed on chronological order (oldest → newest)
-    chronological_scores = [r["health_score"] for r in reversed(matching)]
-    trend = _compute_trend(chronological_scores)
-
-    return HistoryResponse(
-        plot_id=plot_id,
-        analyses=entries,
-        trend=trend,
-    )
+    return HistoryResponse(plot_id=plot_id, analyses=[], trend="insufficient_data")
 
 
 # -------------------------------------------------------------------
@@ -1544,7 +1478,7 @@ async def get_analysis_history(
     response_model=SoilPhotoResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def analyze_photo(req: SoilPhotoRequest, db: AsyncSession = Depends(get_db)):
+async def analyze_photo(req: SoilPhotoRequest):
     """
     Analyze soil from a photograph or image metadata.
 
@@ -1554,10 +1488,10 @@ async def analyze_photo(req: SoilPhotoRequest, db: AsyncSession = Depends(get_db
     carbon, and moisture from soil colour and texture features.
 
     Realistic correlations are applied:
-    - Darker soils → higher organic carbon and nitrogen
-    - Reddish soils → more acidic (iron oxide / laterite)
-    - Grey / low-saturation soils → waterlogged, lower potassium
-    - Clay textures → higher nutrient retention
+    - Darker soils -> higher organic carbon and nitrogen
+    - Reddish soils -> more acidic (iron oxide / laterite)
+    - Grey / low-saturation soils -> waterlogged, lower potassium
+    - Clay textures -> higher nutrient retention
 
     Returns a full soil analysis result similar to ``POST /analyze``,
     along with a confidence score and the extracted image features.
@@ -1570,7 +1504,7 @@ async def analyze_photo(req: SoilPhotoRequest, db: AsyncSession = Depends(get_db
                 "('hue', 'saturation', 'value')."
             ),
         )
-    return await _run_photo_analysis(req, db)
+    return await _run_photo_analysis(req)
 
 
 # -------------------------------------------------------------------
@@ -1594,7 +1528,7 @@ async def quantum_correlation(req: QuantumCorrelationRequest):
 
     Returns:
     - **correlations**: Non-obvious parameter correlations with plain-
-      language insights (e.g., pH–phosphorus binding effects).
+      language insights (e.g., pH-phosphorus binding effects).
     - **correlation_matrix**: Full Pearson correlation matrix across all
       six soil parameters.
     - **quantum_metrics**: Simulated quantum advantage metrics including
@@ -1604,6 +1538,106 @@ async def quantum_correlation(req: QuantumCorrelationRequest):
     """
     return _run_quantum_correlation(req)
 
+
+# -------------------------------------------------------------------
+# Live Sensor Analysis (Arduino + NVIDIA NIM)
+# -------------------------------------------------------------------
+
+@app.post(
+    "/live-scan",
+    response_model=SoilAnalysisResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def live_scan(req: LiveScanRequest):
+    """
+    Perform a live soil scan using the connected Arduino Nano.
+    
+    1. Reads real-time moisture from the hardware via serial_service.
+    2. Uses NVIDIA NIM (Mistral Large) to simulate realistic N, P, K, and pH 
+       values based on moisture and location.
+    3. Runs the standard scoring and recommendation pipeline.
+    """
+    # 1. Capture real moisture from HW-080
+    moisture = serial_service.get_moisture()
+    if moisture is None:
+        raise HTTPException(
+            status_code=503, 
+            detail="Hardware Not Detected. Please connect your SoilScan Arduino via USB."
+        )
+    
+    # 2. Get AI-simulated NPK and pH from NVIDIA NIM
+    api_key = settings.NVIDIA_API_KEY
+    if not api_key:
+        raise HTTPException(
+            status_code=500, detail="NVIDIA_API_KEY not configured in .env."
+        )
+
+    client = OpenAI(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key=api_key
+    )
+    
+    prompt = f"""
+    You are an expert soil scientist. We have a real-time moisture reading from a soil sensor of {moisture}%. 
+    The location is lat={req.latitude}, lon={req.longitude} ({req.region}). The soil type is {req.soil_type}.
+    
+    Based on these conditions, generate realistic soil parameters that a high-end spectrometer would detect.
+    Provide values for:
+    - nitrogen_ppm (typical range 0-600)
+    - phosphorus_ppm (typical range 0-100)
+    - potassium_ppm (typical range 0-400)
+    - ph_level (typical range 4.0-9.0)
+    - organic_carbon_pct (typical range 0.1-3.0)
+    - temperature_celsius (typical range 15-40)
+
+    IMPORTANT: Return ONLY the JSON object matching this structure:
+    {{
+        "nitrogen_ppm": float,
+        "phosphorus_ppm": float,
+        "potassium_ppm": float,
+        "ph_level": float,
+        "organic_carbon_pct": float,
+        "temperature_celsius": float
+    }}
+    """
+
+    try:
+        completion = client.chat.completions.create(
+            model="mistralai/mistral-large-3-675b-instruct-2512",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            top_p=0.7,
+            max_tokens=256,
+        )
+        ai_data = json.loads(completion.choices[0].message.content)
+    except Exception as e:
+        # Fallback simulated data if LLM fails
+        ai_data = {
+            "nitrogen_ppm": 280.0,
+            "phosphorus_ppm": 24.5,
+            "potassium_ppm": 185.0,
+            "ph_level": 6.8,
+            "organic_carbon_pct": 0.95,
+            "temperature_celsius": 24.0
+        }
+
+    # 3. Build standard sample request to reuse analysis logic
+    full_sample = SoilSampleRequest(
+        plot_id=req.plot_id,
+        latitude=req.latitude,
+        longitude=req.longitude,
+        soil_type=req.soil_type,
+        moisture_pct=moisture,
+        nitrogen_ppm=ai_data["nitrogen_ppm"],
+        phosphorus_ppm=ai_data["phosphorus_ppm"],
+        potassium_ppm=ai_data["potassium_ppm"],
+        ph_level=ai_data["ph_level"],
+        organic_carbon_pct=ai_data["organic_carbon_pct"],
+        temperature_celsius=ai_data["temperature_celsius"]
+    )
+
+    # 4. Run through the verified scoring engine
+    return await _run_analysis(full_sample)
 
 # -------------------------------------------------------------------
 # Entrypoint

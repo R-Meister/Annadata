@@ -34,13 +34,16 @@ class SharedSettings(BaseSettings):
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
 
+    # AI
+    NVIDIA_API_KEY: Optional[str] = None
+
     # JWT
     JWT_SECRET_KEY: str = "insecure-jwt-secret-change-in-production"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480  # 8 hours
 
     # CORS
-    BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:3000"]
+    BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
     @property
     def DATABASE_URL(self) -> str:
