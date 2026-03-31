@@ -63,6 +63,7 @@ export default function SoilScanPage() {
   const [moisture, setMoisture] = useState("24");
   const [analysis, setAnalysis] = useState<SoilAnalysisResponse | null>(null);
   const [quantum, setQuantum] = useState<QuantumCorrelationResponse | null>(null);
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
 
   const healthBadge = useMemo(() => {
@@ -160,7 +161,64 @@ export default function SoilScanPage() {
         setQuantum(null);
       }
       setStatus("idle");
-    } catch {
+    } catch (err: any) {
+      setErrorDetail(err.message || "Analysis failed");
+      setStatus("error");
+    }
+  }
+
+  async function runLiveScan() {
+    setStatus("loading");
+    setErrorDetail(null);
+    try {
+      const res = await fetch(`${API_PREFIXES.soilscan}/live-scan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          plot_id: plotId,
+          latitude: 28.61,
+          longitude: 77.21,
+          soil_type: soilType,
+          region: "north_india",
+        }),
+      });
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.detail || "Live scan failed");
+      }
+      const data = (await res.json()) as SoilAnalysisResponse;
+      setAnalysis(data);
+
+      // Update the input fields with the "scanned" values to match the illusion
+      setNitrogen(data.nitrogen_ppm.toFixed(1));
+      setPhosphorus(data.phosphorus_ppm.toFixed(1));
+      setPotassium(data.potassium_ppm.toFixed(1));
+      setPhLevel(data.ph_level.toFixed(1));
+      setOrganicCarbon(data.organic_carbon_pct.toFixed(2));
+      setMoisture(data.moisture_pct.toFixed(0));
+
+      // We still run quantum correlation for the extra data
+      const qc = await fetch(`${API_PREFIXES.soilscan}/quantum-correlation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nitrogen_ppm: data.nitrogen_ppm,
+          phosphorus_ppm: data.phosphorus_ppm,
+          potassium_ppm: data.potassium_ppm,
+          ph: data.ph_level,
+          moisture_pct: data.moisture_pct,
+          organic_carbon_pct: data.organic_carbon_pct,
+          soil_type: soilType,
+          region: "north_india",
+        }),
+      });
+      if (qc.ok) {
+        const qcData = (await qc.json()) as QuantumCorrelationResponse;
+        setQuantum(qcData);
+      }
+      setStatus("idle");
+    } catch (err: any) {
+      setErrorDetail(err.message || "Live scan failed");
       setStatus("error");
     }
   }
@@ -273,9 +331,17 @@ export default function SoilScanPage() {
             <Button onClick={runAnalysis} disabled={status === "loading"}>
               {status === "loading" ? "Analyzing..." : "Run Analysis"}
             </Button>
+            <Button
+              variant="outline"
+              onClick={runLiveScan}
+              disabled={status === "loading"}
+              className="border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary)] hover:text-white"
+            >
+              {status === "loading" ? "Scanning Hardware..." : "🚀 Start Live Scan"}
+            </Button>
             {status === "error" ? (
               <span className="text-sm text-[var(--color-error)]">
-                Unable to fetch soil analysis. Check the API.
+                {errorDetail || "Unable to fetch soil analysis. Check the API and Arduino connection."}
               </span>
             ) : null}
           </div>
