@@ -1,0 +1,8 @@
+<!-- PLACEHOLDER: Replace with actual SVG illustration -->
+<!-- hero_farmer.svg — Smiling farmer character in field with crops -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" fill="none">
+  <rect width="400" height="300" rx="16" fill="#1e293b"/>
+  <text x="200" y="140" text-anchor="middle" font-size="48" fill="#4ade80">🌾</text>
+  <text x="200" y="180" text-anchor="middle" font-size="14" fill="#94a3b8">hero_farmer.svg</text>
+  <text x="200" y="200" text-anchor="middle" font-size="10" fill="#64748b">Replace with actual illustration</text>
+</svg>

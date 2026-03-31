@@ -1,0 +1,159 @@
+@import "tailwindcss";
+
+/* ============================
+   GAMIFIED PLATFORM DESIGN TOKENS
+   ============================ */
+
+@theme {
+  /* Primary - Nature Green */
+  --color-primary-50: #f0fdf4;
+  --color-primary-100: #dcfce7;
+  --color-primary-200: #bbf7d0;
+  --color-primary-300: #86efac;
+  --color-primary-400: #4ade80;
+  --color-primary-500: #22c55e;
+  --color-primary-600: #16a34a;
+  --color-primary-700: #15803d;
+  --color-primary-800: #166534;
+  --color-primary-900: #14532d;
+
+  /* XP Gold */
+  --color-xp-300: #fde047;
+  --color-xp-400: #facc15;
+  --color-xp-500: #eab308;
+  --color-xp-600: #ca8a04;
+
+  /* Quest Categories */
+  --color-cat-water: #3b82f6;
+  --color-cat-soil: #92400e;
+  --color-cat-organic: #22c55e;
+  --color-cat-biodiversity: #8b5cf6;
+  --color-cat-pest: #ef4444;
+  --color-cat-rotation: #f97316;
+  --color-cat-energy: #eab308;
+  --color-cat-community: #06b6d4;
+
+  /* Level Colors */
+  --color-level-1: #86efac;
+  --color-level-2: #6ee7b7;
+  --color-level-3: #4ade80;
+  --color-level-4: #34d399;
+  --color-level-5: #22c55e;
+  --color-level-6: #16a34a;
+  --color-level-7: #15803d;
+  --color-level-8: #166534;
+  --color-level-9: #14532d;
+  --color-level-10: #eab308;
+
+  /* Dark Mode Surfaces */
+  --color-bg-dark: #0a0f1a;
+  --color-surface-dark: #111827;
+  --color-card-dark: #1e293b;
+  --color-card-hover: #263548;
+  --color-border-dark: #334155;
+
+  /* Text */
+  --color-text-primary: #f1f5f9;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
+
+  /* Font */
+  --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+/* ============================
+   BASE STYLES
+   ============================ */
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-bg-dark);
+  color: var(--color-text-primary);
+  min-height: 100dvh;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--color-bg-dark); }
+::-webkit-scrollbar-thumb { background: var(--color-border-dark); border-radius: 3px; }
+
+/* ============================
+   GLASSMORPHISM UTILITIES
+   ============================ */
+
+.glass {
+  background: rgba(30, 41, 59, 0.6);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(51, 65, 85, 0.5);
+}
+
+.glass-card {
+  background: rgba(30, 41, 59, 0.4);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(51, 65, 85, 0.3);
+  border-radius: 16px;
+  padding: 1.5rem;
+}
+
+/* ============================
+   GRADIENT UTILITIES
+   ============================ */
+
+.gradient-primary {
+  background: linear-gradient(135deg, var(--color-primary-600), var(--color-primary-400));
+}
+
+.gradient-xp {
+  background: linear-gradient(135deg, var(--color-xp-500), var(--color-xp-300));
+}
+
+.gradient-hero {
+  background: linear-gradient(
+    160deg,
+    var(--color-bg-dark) 0%,
+    rgba(22, 101, 52, 0.15) 50%,
+    var(--color-bg-dark) 100%
+  );
+}
+
+.gradient-card-water { background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(59, 130, 246, 0.05)); }
+.gradient-card-soil { background: linear-gradient(135deg, rgba(146, 64, 14, 0.15), rgba(146, 64, 14, 0.05)); }
+.gradient-card-organic { background: linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(34, 197, 94, 0.05)); }
+.gradient-card-biodiversity { background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(139, 92, 246, 0.05)); }
+.gradient-card-pest { background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(239, 68, 68, 0.05)); }
+.gradient-card-rotation { background: linear-gradient(135deg, rgba(249, 115, 22, 0.15), rgba(249, 115, 22, 0.05)); }
+.gradient-card-energy { background: linear-gradient(135deg, rgba(234, 179, 8, 0.15), rgba(234, 179, 8, 0.05)); }
+.gradient-card-community { background: linear-gradient(135deg, rgba(6, 182, 212, 0.15), rgba(6, 182, 212, 0.05)); }
+
+/* ============================
+   ANIMATION UTILITIES
+   ============================ */
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+  50% { box-shadow: 0 0 20px 4px rgba(34, 197, 94, 0.2); }
+}
+
+@keyframes count-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-float { animation: float 3s ease-in-out infinite; }
+.animate-pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }
+.animate-count-up { animation: count-up 0.5s ease-out; }
+.shimmer {
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.05) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
